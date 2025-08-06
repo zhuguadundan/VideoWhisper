@@ -4,9 +4,16 @@ from typing import Dict, Any, Optional, List
 from app.config.settings import Config
 
 class TextProcessor:
-    def __init__(self):
-        self.openai_config = Config.get_api_config('openai')
-        self.gemini_config = Config.get_api_config('gemini')
+    def __init__(self, openai_config=None, gemini_config=None):
+        if openai_config:
+            self.openai_config = openai_config
+        else:
+            self.openai_config = Config.get_api_config('openai')
+            
+        if gemini_config:
+            self.gemini_config = gemini_config
+        else:
+            self.gemini_config = Config.get_api_config('gemini')
         
         # 初始化 OpenAI Client
         self.openai_client = None
@@ -27,6 +34,11 @@ class TextProcessor:
         
         # 初始化 Gemini
         if self.gemini_config.get('api_key'):
+            # 如果配置了自定义base_url，设置为环境变量
+            if self.gemini_config.get('base_url'):
+                import os
+                os.environ['GOOGLE_AI_STUDIO_API_URL'] = self.gemini_config['base_url']
+            
             genai.configure(api_key=self.gemini_config['api_key'])
             self.gemini_model = genai.GenerativeModel(
                 self.gemini_config.get('model', 'gemini-pro')

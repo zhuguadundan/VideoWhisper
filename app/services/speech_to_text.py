@@ -6,8 +6,12 @@ from typing import List, Dict, Any
 from app.config.settings import Config
 
 class SpeechToText:
-    def __init__(self):
-        self.config = Config.get_api_config('siliconflow')
+    def __init__(self, api_config=None):
+        if api_config:
+            self.config = api_config
+        else:
+            self.config = Config.get_api_config('siliconflow')
+        
         self.api_key = self.config.get('api_key', '')
         self.base_url = self.config.get('base_url', '')
         self.model = self.config.get('model', 'FunAudioLLM/SenseVoiceSmall')

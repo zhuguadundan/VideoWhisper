@@ -2,6 +2,8 @@ from flask import Blueprint, render_template, request, jsonify, send_file
 import threading
 import os
 from app.services.video_processor import VideoProcessor
+from app.services.speech_to_text import SpeechToText
+from app.services.text_processor import TextProcessor
 
 main_bp = Blueprint('main', __name__)
 video_processor = VideoProcessor()
@@ -10,6 +12,11 @@ video_processor = VideoProcessor()
 def index():
     """主页"""
     return render_template('index.html')
+
+@main_bp.route('/settings')
+def settings():
+    """设置页面"""
+    return render_template('settings.html')
 
 @main_bp.route('/api/process', methods=['POST'])
 def process_video():
@@ -199,4 +206,99 @@ def list_tasks():
         return jsonify({
             'success': False,
             'message': str(e)
+        })
+
+@main_bp.route('/api/test-connection', methods=['POST'])
+def test_api_connection():
+    """测试API连接"""
+    try:
+        data = request.get_json()
+        provider = data.get('provider')
+        config = data.get('config', {})
+        
+        if provider == 'siliconflow':
+            # 测试硅基流动API
+            if not config.get('api_key'):
+                return jsonify({'success': False, 'error': 'API Key未提供'})
+            
+            import requests
+            headers = {'Authorization': f'Bearer {config["api_key"]}'}
+            
+            try:
+                response = requests.get(
+                    f"{config['base_url']}/models",
+                    headers=headers,
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    return jsonify({
+                        'success': True,
+                        'message': f'硅基流动API连接成功，模型: {config.get("model", "")}'
+                    })
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': f'API响应错误: {response.status_code}'
+                    })
+            except requests.RequestException as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'网络连接失败: {str(e)}'
+                })
+                
+        elif provider == 'openai':
+            try:
+                import openai
+                client = openai.OpenAI(
+                    api_key=config.get('api_key'),
+                    base_url=config.get('base_url') if config.get('base_url') else None
+                )
+                
+                response = client.chat.completions.create(
+                    model=config.get('model', 'gpt-4'),
+                    messages=[{"role": "user", "content": "Hello"}],
+                    max_tokens=5
+                )
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'OpenAI API连接成功，模型: {config.get("model", "gpt-4")}'
+                })
+                
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'OpenAI API测试失败: {str(e)}'
+                })
+                
+        elif provider == 'gemini':
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=config.get('api_key'))
+                model = genai.GenerativeModel(config.get('model', 'gemini-pro'))
+                
+                response = model.generate_content("Hello")
+                
+                return jsonify({
+                    'success': True,
+                    'message': f'Gemini API连接成功，模型: {config.get("model", "gemini-pro")}'
+                })
+                
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'Gemini API测试失败: {str(e)}'
+                })
+                
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'不支持的服务提供商: {provider}'
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'测试过程中发生错误: {str(e)}'
         })
