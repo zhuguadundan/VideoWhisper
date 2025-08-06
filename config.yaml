@@ -1,0 +1,57 @@
+# 视频转文本处理系统配置
+
+# API配置
+apis:
+  siliconflow:
+    base_url: "https://api.siliconflow.cn/v1"
+    api_key: "youapikey"
+    model: "FunAudioLLM/SenseVoiceSmall"
+  
+  openai:
+    api_key: "youapikey"
+    model: "Qwen/Qwen3-235B-A22B-Instruct-2507"
+    base_url: "https://api-inference.modelscope.cn/v1"
+  
+  gemini:
+    api_key: "your_gemini_api_key"
+    model: "gemini-pro"
+
+# 系统配置
+system:
+  temp_dir: "./temp"
+  output_dir: "./output"
+  max_file_size: 500  # MB
+  audio_format: "wav"
+  audio_sample_rate: 16000
+
+# Web服务配置
+web:
+  host: "0.0.0.0"
+  port: 5000
+  debug: true
+
+# 视频下载配置
+downloader:
+  # 抖音配置
+  douyin:
+    # 启用抖音支持
+    enabled: true
+    # Cookie配置方式:
+    # 1. cookies_file: 从浏览器导出的cookies.txt文件路径
+    # 2. cookies_string: 直接配置cookie字符串
+    cookies_file: "./cookies.txt"  # 可选：cookie文件路径
+    # cookies_string: "cookie1=value1; cookie2=value2"  # 可选：直接配置cookie字符串
+    
+    # 请求头配置
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    referer: "https://www.douyin.com/"
+    
+    # 其他选项
+    sleep_interval: 1  # 请求间隔（秒）
+    max_retries: 3     # 最大重试次数
+  
+  # 通用配置
+  general:
+    format: "best[height<=720]/best"  # 视频格式
+    audio_format: "bestaudio/best"    # 音频格式
+    quiet: false                      # 静默模式

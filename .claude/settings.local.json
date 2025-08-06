@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(pip:*)",
+      "Bash(choco:*)",
+      "Bash(winget install:*)",
+      "Bash(ffmpeg:*)",
+      "Bash(powershell:*)",
+      "Bash(C:\\ffmpeg\\ffmpeg.exe:*)",
+      "Bash(\"C:/ffmpeg/ffmpeg.exe\" -version)",
+      "Bash(ffprobe:*)",
+      "Bash(where:*)",
+      "Bash(echo:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": []
+  }
+}
