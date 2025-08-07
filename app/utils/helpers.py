@@ -66,7 +66,5 @@ def get_video_platform(url: str) -> str:
         return 'YouTube'
     elif 'bilibili.com' in url:
         return 'Bilibili'
-    elif 'douyin.com' in url or 'tiktok.com' in url:
-        return 'TikTok/抖音'
     else:
         return '其他平台'

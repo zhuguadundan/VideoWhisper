@@ -22,7 +22,24 @@
       "Bash(git push:*)",
       "Bash(git fetch:*)",
       "Bash(git pull:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(docker --version)",
+      "Bash(rm:*)",
+      "Bash(docker info:*)",
+      "Bash(docker run:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker pull:*)",
+      "Bash(./build-docker.bat)",
+      "Bash(docker build:*)",
+      "Bash(sed:*)",
+      "Bash(docker system prune:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker-compose ps:*)",
+      "Bash(docker-compose logs:*)",
+      "Bash(docker login:*)",
+      "Bash(docker push:*)",
+      "Bash(docker search:*)"
     ],
     "deny": []
   }

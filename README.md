@@ -1,12 +1,12 @@
 # VideoWhisper - 视频智语 🎥✨
 
-> 当前版本：v2.1.1 | 最后更新：2025-08-07
+> 当前版本：v0.1 | 最后更新：2025-08-07
 
 一个智能的视频转文本处理系统，支持视频下载、语音转录、智能摘要和内容分析。
 
 ## ✨ 功能特性
 
-- 🎬 **多平台支持**: YouTube、抖音等主流视频平台
+- 🎬 **多平台支持**: YouTube等主流视频平台
 - 🗣️ **智能语音识别**: 基于SiliconFlow的高精度语音转文本
 - 🤖 **AI内容分析**: 使用OpenAI/Gemini进行智能摘要和内容分析
 - 📋 **任务管理**: 支持任务历史记录和进度追踪
@@ -75,7 +75,7 @@
 - ✅ 数据模型标准化
 
 **🆕 核心功能:**
-- ✅ 多平台视频下载支持 (YouTube, 抖音)
+- ✅ YouTube视频下载支持
 - ✅ SiliconFlow语音识别集成
 - ✅ OpenAI/Gemini双AI引擎支持
 - ✅ 任务队列和进度追踪
@@ -93,11 +93,10 @@
 - ✅ 多种输出格式 (TXT, MD, JSON)
 - ✅ 时间戳精确对齐
 
-### v1.1.0 (2024-12-01) - 平台支持扩展
-- ✅ 抖音平台支持
-- ✅ Cookie认证机制
+### v1.1.0 (2024-12-01) - 功能增强
 - ✅ 批量音频处理
 - ✅ 错误恢复机制
+- ✅ 平台支持优化
 
 ### v1.0.0 (2024-11-15) - 首次发布
 - ✅ YouTube视频下载
@@ -123,20 +122,47 @@
 
 ## 🚀 快速开始
 
-### 1. 克隆项目
+### 方式一：Docker部署（推荐） 🐳
+
+Docker部署是最简单快速的方式，无需手动安装依赖：
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/zhuguadundan/VideoWhisper.git
+cd VideoWhisper
+
+# 2. 构建和启动（Windows）
+build-docker.bat
+
+# 构建和启动（Linux/Mac）
+chmod +x build-docker.sh
+./build-docker.sh
+
+# 3. 使用Docker Compose启动
+docker-compose up -d
+
+# 4. 访问应用
+# http://localhost:5000
+```
+
+详细的Docker部署指南请查看 [DOCKER.md](DOCKER.md)
+
+### 方式二：传统部署
+
+#### 1. 克隆项目
 
 ```bash
 git clone https://github.com/zhuguadundan/VideoWhisper.git
 cd VideoWhisper
 ```
 
-### 2. 安装依赖
+#### 2. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 安装FFmpeg
+#### 3. 安装FFmpeg
 
 **Windows用户**:
 ```bash
@@ -155,7 +181,7 @@ sudo apt install ffmpeg
 brew install ffmpeg
 ```
 
-### 4. 配置API密钥
+#### 4. 配置API密钥
 
 有两种配置方式：
 
@@ -179,7 +205,7 @@ apis:
     base_url: "https://generativelanguage.googleapis.com/v1"
 ```
 
-### 5. 运行应用
+#### 5. 运行应用
 
 ```bash
 python run.py
@@ -239,14 +265,6 @@ python run.py
 - ⚡ 处理超时设置
 - 🔒 安全参数调整
 
-### 🔧 抖音视频支持
-
-抖音视频需要Cookie认证：
-
-1. 浏览器访问 https://www.douyin.com 并登录
-2. 使用浏览器扩展导出cookies （推荐：EditThisCookie）
-3. 将cookies保存为项目根目录下的 `cookies.txt`
-
 ## 📁 项目结构
 
 ```
@@ -276,11 +294,18 @@ VideoWhisper/
 │       ├── settings.html         # 设置页模板
 │       └── files.html            # 文件管理模板
 ├── config.yaml           # 主配置文件
+├── config.docker.yaml   # Docker配置模板
 ├── requirements.txt      # Python依赖清单
 ├── run.py               # 应用启动脚本
 ├── temp/                # 临时文件目录
 ├── output/              # 输出文件目录
-└── cookies.txt          # 抖音Cookie文件（可选）
+├── Dockerfile           # Docker镜像构建文件
+├── docker-compose.yml   # Docker编排配置
+├── docker-entrypoint.sh # Docker启动脚本
+├── .dockerignore        # Docker构建忽略文件
+├── build-docker.sh      # Linux/Mac构建脚本
+├── build-docker.bat     # Windows构建脚本
+└── DOCKER.md           # Docker部署指南
 ```
 
 ## 🔧 配置详解
@@ -315,15 +340,10 @@ system:
 
 # 下载器配置
 downloader:
-  douyin:                   # 抖音下载配置
-    enabled: true
-    cookies_file: "./cookies.txt"
-    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-  
-  youtube:                  # YouTube下载配置
-    enabled: true
-    quality: "best[height<=720]"
-    format: "mp4"
+  general:                  # 通用下载配置
+    format: "best[height<=720]/best"
+    audio_format: "bestaudio/best"
+    quiet: false
 
 # Web服务配置
 web:
@@ -373,6 +393,7 @@ python test.py
 
 ### 开发命令
 
+**传统部署**：
 ```bash
 # 运行应用
 python run.py
@@ -382,6 +403,24 @@ pip install -r requirements.txt
 
 # FFmpeg安装 (Windows)
 powershell -ExecutionPolicy Bypass -File install-ffmpeg.ps1
+```
+
+**Docker部署**：
+```bash
+# 构建镜像
+docker build -t videowhisper:latest .
+
+# 启动服务
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
+
+# 进入容器
+docker-compose exec videowhisper bash
 ```
 
 ## 🎯 路线图
@@ -400,9 +439,10 @@ powershell -ExecutionPolicy Bypass -File install-ffmpeg.ps1
 
 ### 长期规划
 - [ ] **移动端**: PWA应用支持
-- [ ] **Docker**: 容器化部署
+- [x] **Docker**: 容器化部署 ✅
 - [ ] **分布式**: 多节点处理支持
 - [ ] **机器学习**: 自定义AI模型训练
+- [ ] **Kubernetes**: K8s集群部署支持
 
 ## 🤝 贡献指南
 

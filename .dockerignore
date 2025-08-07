@@ -1,0 +1,68 @@
+# Git相关
+.git
+.gitignore
+.gitattributes
+
+# Python相关
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDE相关
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件和输出
+temp/
+output/
+*.tmp
+
+# 测试文件
+test_*.py
+.pytest_cache/
+.coverage
+
+# Docker相关
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# 配置文件（安全考虑）
+cookies.txt
+.env
+
+# Claude相关
+.claude/
+
+# 文档和说明
+README.md
+*.md
+docs/
+
+# 脚本文件
+install-ffmpeg*.ps1
+*.bat
+*.sh
+!docker-entrypoint.sh
+
+# 备份文件
+*.bak
+*.backup

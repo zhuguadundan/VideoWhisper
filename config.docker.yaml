@@ -1,0 +1,40 @@
+# 视频转文本处理系统配置 - Docker版本
+
+# API配置
+apis:
+  siliconflow:
+    base_url: "https://api.siliconflow.cn/v1"
+    api_key: ""  # 请通过网页设置页面配置或环境变量设置
+    model: "FunAudioLLM/SenseVoiceSmall"
+  
+  openai:
+    api_key: ""  # 请通过网页设置页面配置或环境变量设置
+    model: "gpt-4"
+    base_url: ""  # 可选
+  
+  gemini:
+    api_key: ""  # 请通过网页设置页面配置或环境变量设置
+    base_url: ""  # 可选，留空使用默认地址
+    model: "gemini-pro"
+
+# 系统配置
+system:
+  temp_dir: "/app/temp"      # Docker容器内路径
+  output_dir: "/app/output"  # Docker容器内路径
+  max_file_size: 500  # MB
+  audio_format: "wav"
+  audio_sample_rate: 16000
+
+# Web服务配置
+web:
+  host: "0.0.0.0"    # 重要：Docker容器内需要绑定到所有接口
+  port: 5000
+  debug: false       # 生产环境关闭调试模式
+
+# 视频下载配置
+downloader:
+  # 通用配置
+  general:
+    format: "best[height<=720]/best"
+    audio_format: "bestaudio/best"
+    quiet: false

@@ -33,24 +33,6 @@ web:
 
 # 视频下载配置
 downloader:
-  # 抖音配置
-  douyin:
-    # 启用抖音支持
-    enabled: true
-    # Cookie配置方式:
-    # 1. cookies_file: 从浏览器导出的cookies.txt文件路径
-    # 2. cookies_string: 直接配置cookie字符串
-    cookies_file: "./cookies.txt"  # 可选：cookie文件路径
-    # cookies_string: "cookie1=value1; cookie2=value2"  # 可选：直接配置cookie字符串
-    
-    # 请求头配置
-    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    referer: "https://www.douyin.com/"
-    
-    # 其他选项
-    sleep_interval: 1  # 请求间隔（秒）
-    max_retries: 3     # 最大重试次数
-  
   # 通用配置
   general:
     format: "best[height<=720]/best"  # 视频格式

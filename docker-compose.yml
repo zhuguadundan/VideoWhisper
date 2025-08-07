@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  videowhisper:
+    image: videowhisper:0.1
+    container_name: videowhisper-app
+    ports:
+      - "5000:5000"
+    volumes:
+      # 配置文件映射
+      - ./config.yaml:/app/config.yaml:ro
+      # 数据持久化
+      - videowhisper_output:/app/output
+      - videowhisper_temp:/app/temp
+      # 日志持久化
+      - videowhisper_logs:/app/logs
+    environment:
+      - TZ=Asia/Shanghai
+      # 可以通过环境变量覆盖配置
+      - FLASK_ENV=production
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - videowhisper_network
+
+# 定义数据卷
+volumes:
+  videowhisper_output:
+    driver: local
+  videowhisper_temp:
+    driver: local
+  videowhisper_logs:
+    driver: local
+
+# 定义网络
+networks:
+  videowhisper_network:
+    driver: bridge

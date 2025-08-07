@@ -48,7 +48,7 @@ Video URL → yt-dlp download → FFmpeg audio extraction → SiliconFlow speech
 - Automatic cleanup of temporary files on completion/failure
 
 **2. Service Layer** (Multi-provider pattern)
-- `video_downloader.py`: yt-dlp wrapper with platform-specific configurations (YouTube, Douyin/TikTok with cookie support)
+- `video_downloader.py`: yt-dlp wrapper with YouTube configuration
 - `audio_extractor.py`: FFmpeg integration with audio segmentation (5-minute chunks for long content)
 - `speech_to_text.py`: SiliconFlow API client with batch processing and timestamp alignment
 - `text_processor.py`: Multi-provider AI integration (OpenAI/Gemini) with structured prompt templates
@@ -62,7 +62,6 @@ Video URL → yt-dlp download → FFmpeg audio extraction → SiliconFlow speech
 **4. Configuration System** (`app/config/settings.py`)
 - YAML-based configuration from `config.yaml` (not environment variables)
 - Multi-provider API key management
-- Platform-specific downloader settings (cookies, headers)
 - System limits (file size, processing timeout)
 
 **5. Web Interface** (`web/`)
@@ -104,7 +103,6 @@ Each task generates files in `/output/<task_id>/`:
 ## Platform-Specific Features
 
 **YouTube Support**: Direct public video processing
-**Douyin/TikTok Support**: Requires cookies.txt file in project root for authentication
 
 ## Configuration Management
 

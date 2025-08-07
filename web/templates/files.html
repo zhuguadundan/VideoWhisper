@@ -8,6 +8,43 @@
     <link href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.0/font/bootstrap-icons.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     <style>
+        /* 覆盖深蓝色背景，使用白色背景 */
+        body {
+            background: #ffffff !important;
+            min-height: 100vh;
+        }
+        
+        .bg-gradient {
+            display: none !important;
+        }
+        
+        /* 调整导航栏颜色 */
+        .navbar-brand {
+            color: #0d6efd !important;
+        }
+        
+        .nav-link {
+            color: #495057 !important;
+        }
+        
+        .nav-link.active {
+            color: #0d6efd !important;
+            font-weight: 600;
+        }
+        
+        .nav-link:hover {
+            color: #0d6efd !important;
+        }
+        
+        /* 调整统计卡片使用绿色渐变 */
+        .stats-card {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
         .file-item {
             transition: all 0.3s ease;
             border-left: 4px solid transparent;
@@ -64,7 +101,7 @@
             color: #6c757d;
         }
         .stats-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
             color: white;
             border-radius: 15px;
             padding: 20px;

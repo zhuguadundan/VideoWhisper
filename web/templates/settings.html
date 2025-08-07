@@ -8,6 +8,39 @@
     <link href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     <style>
+        /* 覆盖深蓝色背景，使用白色背景 */
+        body {
+            background: #ffffff !important;
+            min-height: 100vh;
+        }
+        
+        .bg-gradient {
+            display: none !important;
+        }
+        
+        /* 调整按钮样式适应白色背景 */
+        .btn-outline-primary {
+            color: #0d6efd;
+            border-color: #0d6efd;
+        }
+        
+        .btn-outline-primary:hover {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+            color: #ffffff;
+        }
+        
+        .btn-outline-secondary {
+            color: #6c757d;
+            border-color: #6c757d;
+        }
+        
+        .btn-outline-secondary:hover {
+            background-color: #6c757d;
+            border-color: #6c757d;
+            color: #ffffff;
+        }
+        
         .security-notice {
             background: linear-gradient(135deg, #ffeaa7, #fab1a0);
             border-left: 4px solid #e17055;

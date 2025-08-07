@@ -33,6 +33,15 @@ def settings():
     """设置页面"""
     return render_template('settings.html')
 
+@main_bp.route('/api/health', methods=['GET'])
+def health_check():
+    """健康检查端点"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'version': 'v2.1.1'
+    })
+
 @main_bp.route('/api/providers', methods=['GET'])
 @api_error_handler
 def get_available_providers():
