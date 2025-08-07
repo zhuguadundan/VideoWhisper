@@ -17,67 +17,120 @@ pip install -r requirements.txt
 
 ### Testing
 ```bash
-# Simple test
+# Simple test - validates basic system components
 python test_simple.py
 
-# Complete integration test
+# Complete integration test - full pipeline testing
 python test_complete.py
 
-# Basic functionality test
+# Basic functionality test - core feature validation
 python test.py
 ```
 
 ### FFmpeg Installation
-- **Windows**: Use the provided PowerShell scripts: `install-ffmpeg.ps1` or `install-ffmpeg-en.ps1`
-- **Linux/Mac**: Install via package manager (apt, brew)
+- **Windows**: Use provided PowerShell scripts: `install-ffmpeg.ps1` or `install-ffmpeg-en.ps1`
+- **Linux/Mac**: Install via package manager (apt, brew, etc.)
 
 ## Architecture Overview
 
-This is a video-to-text processing system built with Flask that handles:
+**VideoWhisper** is a video-to-text processing system with asynchronous task management built on Flask. The system processes videos through a multi-stage pipeline with real-time progress tracking.
 
-1. **Video Download & Processing Pipeline**: 
-   - Video URL input → yt-dlp download → FFmpeg audio extraction → Speech-to-text → AI text processing
-   - Located in `app/services/video_processor.py`
+### Core Processing Pipeline
+Video URL → yt-dlp download → FFmpeg audio extraction → SiliconFlow speech-to-text → OpenAI/Gemini text processing → Structured output
 
-2. **Service Layer Structure**:
-   - `video_downloader.py`: Handles video downloads using yt-dlp
-   - `audio_extractor.py`: Extracts audio using FFmpeg
-   - `speech_to_text.py`: Converts speech to text using SiliconFlow API
-   - `text_processor.py`: Processes text using OpenAI/Gemini APIs
+### Key Architectural Components
 
-3. **Flask Application Structure**:
-   - `app/__init__.py`: App factory pattern
-   - `app/main.py`: Main blueprint with API routes
-   - `app/config/settings.py`: Configuration management
-   - `app/models/data_models.py`: Data classes for task management
+**1. Task Management System** (`app/services/video_processor.py`)
+- UUID-based task identification and tracking
+- Asynchronous processing using Python threading (not async/await)
+- Progress tracking (0-100%) with real-time updates via polling
+- Task persistence to disk with JSON serialization
+- Automatic cleanup of temporary files on completion/failure
 
-4. **API Configuration**:
-   - Configuration stored in `config.yaml`
-   - Supports multiple AI providers: SiliconFlow (speech), OpenAI/Gemini (text processing)
-   - Tasks are processed asynchronously using threading
+**2. Service Layer** (Multi-provider pattern)
+- `video_downloader.py`: yt-dlp wrapper with platform-specific configurations (YouTube, Douyin/TikTok with cookie support)
+- `audio_extractor.py`: FFmpeg integration with audio segmentation (5-minute chunks for long content)
+- `speech_to_text.py`: SiliconFlow API client with batch processing and timestamp alignment
+- `text_processor.py`: Multi-provider AI integration (OpenAI/Gemini) with structured prompt templates
 
-5. **File Organization**:
-   - `temp/`: Temporary files during processing
-   - `output/<task_id>/`: Final outputs (transcript.txt, summary.md, data.json)
-   - `web/`: Static assets and HTML templates
+**3. Data Models** (`app/models/data_models.py`)
+- `ProcessingTask`: Task state management (pending → processing → completed/failed)
+- `VideoInfo`: Video metadata extraction (title, uploader, duration)
+- `TranscriptionResult`: Speech recognition results with confidence scores
+- All models use dataclass with JSON serialization support
+
+**4. Configuration System** (`app/config/settings.py`)
+- YAML-based configuration from `config.yaml` (not environment variables)
+- Multi-provider API key management
+- Platform-specific downloader settings (cookies, headers)
+- System limits (file size, processing timeout)
+
+**5. Web Interface** (`web/`)
+- Bootstrap 5 responsive UI with custom CSS styling
+- Real-time progress updates via JavaScript polling (no WebSocket)
+- Settings page for API configuration management
+- File download interface for all output formats
 
 ## Key API Endpoints
 
-- `POST /api/process`: Create new video processing task
-- `GET /api/progress/<task_id>`: Get processing progress
-- `GET /api/result/<task_id>`: Get final results
-- `GET /api/download/<task_id>/<file_type>`: Download result files
-- `GET /api/tasks`: List all tasks
+### Core Processing
+- `POST /api/process`: Create new video processing task (returns task_id)
+- `GET /api/progress/<task_id>`: Real-time progress tracking (0-100%)
+- `GET /api/result/<task_id>`: Retrieve completed processing results
+- `GET /api/download/<task_id>/<file_type>`: Download result files (txt, md, json)
 
-## Configuration Notes
+### Management
+- `GET /api/tasks`: List all historical tasks with metadata
+- `POST /api/test-connection`: Test API connectivity for configured providers
 
-- API keys are stored in `config.yaml` (not environment variables)
-- The system supports Chinese language content (comments and UI are in Chinese)
-- Task processing is handled via background threads with progress tracking
-- Video info extraction includes title, uploader, and duration metadata
+### File Management (v2.1.0)
+- `GET /api/files`: List all files in output and temp directories
+- `GET /api/files/download/<file_id>`: Download any file by ID
+- `POST /api/files/delete`: Delete multiple files by ID
+- `POST /api/files/delete-task/<task_id>`: Delete all files for a specific task
+
+### Settings Management (v2.1.0)
+- `GET /api/settings`: Get current configuration
+- `POST /api/settings`: Update configuration
+
+## Output File Structure
+
+Each task generates files in `/output/<task_id>/`:
+- `transcript.txt`: Clean, formatted transcript
+- `transcript_with_timestamps.txt`: Timestamped version
+- `summary.md`: Structured analysis report with metadata
+- `data.json`: Complete processing data including confidence scores
+
+## Platform-Specific Features
+
+**YouTube Support**: Direct public video processing
+**Douyin/TikTok Support**: Requires cookies.txt file in project root for authentication
+
+## Configuration Management
+
+### API Keys (stored in `config.yaml`)
+```yaml
+apis:
+  siliconflow:    # Speech recognition (required)
+  openai:         # Text processing option 1
+  gemini:         # Text processing option 2
+```
+
+### System Settings
+- Chinese language interface and error messages
+- Configurable file size limits and processing timeouts
+- Automatic task history retention
+
+## Development Notes
+
+- **Asynchronous Pattern**: Uses threading, not async/await
+- **Error Handling**: Comprehensive Chinese error messages throughout
+- **Testing Strategy**: Three-tier testing (simple → complete → basic)
+- **File Management**: Automatic cleanup with configurable retention
+- **Progress Tracking**: Polling-based (not real-time WebSocket)
 
 ## Dependencies
 
-- **Core**: Flask, yt-dlp, ffmpeg-python
-- **AI APIs**: openai, google-generativeai
-- **Utilities**: pyyaml, python-dotenv, dataclasses-json
+**Core Framework**: Flask 2.3.3, yt-dlp, ffmpeg-python
+**AI Services**: openai 1.99.1, google-generativeai 0.3.0
+**Data Processing**: pyyaml, dataclasses-json, python-dotenv

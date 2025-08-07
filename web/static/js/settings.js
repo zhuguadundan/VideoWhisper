@@ -13,15 +13,11 @@ class APIConfigManager {
                 base_url: document.getElementById('siliconflow_base_url').value,
                 model: document.getElementById('siliconflow_model').value
             },
-            openai: {
-                api_key: document.getElementById('openai_api_key').value,
-                base_url: document.getElementById('openai_base_url').value,
-                model: document.getElementById('openai_model').value
-            },
-            gemini: {
-                api_key: document.getElementById('gemini_api_key').value,
-                base_url: document.getElementById('gemini_base_url').value,
-                model: document.getElementById('gemini_model').value
+            text_processor: {
+                provider: document.getElementById('text_processor_provider').value,
+                api_key: document.getElementById('text_processor_api_key').value,
+                base_url: document.getElementById('text_processor_base_url').value,
+                model: document.getElementById('text_processor_model').value
             }
         };
 
@@ -43,20 +39,20 @@ class APIConfigManager {
             // 填充表单
             if (config.siliconflow) {
                 document.getElementById('siliconflow_api_key').value = config.siliconflow.api_key || '';
-                document.getElementById('siliconflow_base_url').value = config.siliconflow.base_url || '';
-                document.getElementById('siliconflow_model').value = config.siliconflow.model || '';
+                document.getElementById('siliconflow_base_url').value = config.siliconflow.base_url || 'https://api.siliconflow.cn/v1';
+                document.getElementById('siliconflow_model').value = config.siliconflow.model || 'FunAudioLLM/SenseVoiceSmall';
             }
             
-            if (config.openai) {
-                document.getElementById('openai_api_key').value = config.openai.api_key || '';
-                document.getElementById('openai_base_url').value = config.openai.base_url || '';
-                document.getElementById('openai_model').value = config.openai.model || '';
-            }
-            
-            if (config.gemini) {
-                document.getElementById('gemini_api_key').value = config.gemini.api_key || '';
-                document.getElementById('gemini_base_url').value = config.gemini.base_url || '';
-                document.getElementById('gemini_model').value = config.gemini.model || '';
+            if (config.text_processor) {
+                document.getElementById('text_processor_provider').value = config.text_processor.provider || 'siliconflow';
+                document.getElementById('text_processor_api_key').value = config.text_processor.api_key || '';
+                document.getElementById('text_processor_base_url').value = config.text_processor.base_url || '';
+                document.getElementById('text_processor_model').value = config.text_processor.model || '';
+                this.updateModelPlaceholder(config.text_processor.provider || 'siliconflow');
+            } else {
+                // 设置默认值
+                document.getElementById('text_processor_provider').value = 'siliconflow';
+                this.updateModelPlaceholder('siliconflow');
             }
             
         } catch (error) {
@@ -74,9 +70,8 @@ class APIConfigManager {
             document.getElementById('apiConfigForm').reset();
             
             // 重置状态指示器
-            ['siliconflow', 'openai', 'gemini'].forEach(provider => {
-                this.updateStatus(provider, 'untested', '未测试');
-            });
+            this.updateStatus('siliconflow', 'untested', '未测试');
+            this.updateStatus('text_processor', 'untested', '未测试');
             
             this.showToast('warning', '配置已清除', '所有API配置已从本地存储中移除');
         }
@@ -97,10 +92,44 @@ class APIConfigManager {
 
     // 测试API连接
     async testConnection(provider) {
-        const config = this.getConfig();
+        // 获取当前表单配置，不保存到存储
+        const config = {
+            siliconflow: {
+                api_key: document.getElementById('siliconflow_api_key').value,
+                base_url: document.getElementById('siliconflow_base_url').value,
+                model: document.getElementById('siliconflow_model').value
+            },
+            text_processor: {
+                provider: document.getElementById('text_processor_provider').value,
+                api_key: document.getElementById('text_processor_api_key').value,
+                base_url: document.getElementById('text_processor_base_url').value,
+                model: document.getElementById('text_processor_model').value
+            }
+        };
         if (!config || !config[provider]) {
             this.showToast('error', '测试失败', '请先配置API信息');
             return;
+        }
+
+        // 特殊处理文本处理器
+        let testConfig = config[provider];
+        if (provider === 'text_processor') {
+            // 验证必要字段
+            if (!config[provider].api_key) {
+                this.showToast('error', '测试失败', '请先输入API Key');
+                return;
+            }
+            
+            // 如果是自定义提供商，检查Base URL是否已填写
+            if (config[provider].provider === 'custom' && !config[provider].base_url) {
+                this.showToast('error', '测试失败', '自定义提供商需要输入Base URL');
+                return;
+            }
+            
+            testConfig = {
+                ...config[provider],
+                actual_provider: config[provider].provider
+            };
         }
 
         this.updateStatus(provider, 'testing', '测试中...');
@@ -113,7 +142,7 @@ class APIConfigManager {
                 },
                 body: JSON.stringify({
                     provider: provider,
-                    config: config[provider]
+                    config: testConfig
                 })
             });
 
@@ -121,15 +150,24 @@ class APIConfigManager {
             
             if (result.success) {
                 this.updateStatus(provider, 'success', '连接成功');
-                this.showToast('success', `${provider} 连接成功`, result.message || '');
+                this.showToast('success', `${this.getProviderDisplayName(provider)} 连接成功`, result.message || '');
             } else {
                 this.updateStatus(provider, 'error', '连接失败');
-                this.showToast('error', `${provider} 连接失败`, result.error || '');
+                this.showToast('error', `${this.getProviderDisplayName(provider)} 连接失败`, result.message || result.error || '未知错误');
             }
         } catch (error) {
             this.updateStatus(provider, 'error', '连接失败');
-            this.showToast('error', '测试失败', '网络错误或服务器无响应');
+            this.showToast('error', '测试失败', '网络错误或服务器无响应: ' + error.message);
         }
+    }
+    
+    // 获取提供商显示名称
+    getProviderDisplayName(provider) {
+        const names = {
+            'siliconflow': '硅基流动',
+            'text_processor': 'AI文本处理服务'
+        };
+        return names[provider] || provider;
     }
 
     // 更新状态指示器
@@ -156,6 +194,34 @@ class APIConfigManager {
         }
         
         textElement.textContent = text;
+    }
+
+    // 更新模型占位符
+    updateModelPlaceholder(provider) {
+        const modelInput = document.getElementById('text_processor_model');
+        const baseUrlInput = document.getElementById('text_processor_base_url');
+        const baseUrlRequired = document.getElementById('baseurl-required');
+        
+        switch (provider) {
+            case 'siliconflow':
+                modelInput.placeholder = 'Qwen/Qwen3-Coder-30B-A3B-Instruct';
+                modelInput.value = modelInput.value || 'Qwen/Qwen3-Coder-30B-A3B-Instruct';
+                baseUrlInput.placeholder = 'https://api.siliconflow.cn/v1 (可选)';
+                baseUrlInput.value = baseUrlInput.value || 'https://api.siliconflow.cn/v1';
+                baseUrlRequired.style.display = 'none';
+                baseUrlInput.required = false;
+                break;
+            case 'custom':
+                modelInput.placeholder = '如: gpt-4, claude-3-haiku, 或其他兼容OpenAI的模型';
+                if (modelInput.value === 'Qwen/Qwen3-Coder-30B-A3B-Instruct') {
+                    modelInput.value = ''; // 清空硅基流动的默认值
+                }
+                baseUrlInput.placeholder = '如: https://api.openai.com/v1 或第三方API地址';
+                baseUrlInput.value = '';
+                baseUrlRequired.style.display = 'inline';
+                baseUrlInput.required = true;
+                break;
+        }
     }
 
     // 显示提示消息
@@ -223,9 +289,20 @@ function testConnection(provider) {
     configManager.testConnection(provider);
 }
 
+// 提供商变更事件
+function onProviderChange() {
+    const provider = document.getElementById('text_processor_provider').value;
+    configManager.updateModelPlaceholder(provider);
+}
+
 // 页面加载完成后自动加载配置
 document.addEventListener('DOMContentLoaded', function() {
     configManager.loadConfig();
+    // 初始化默认提供商
+    if (!document.getElementById('text_processor_provider').value) {
+        document.getElementById('text_processor_provider').value = 'siliconflow';
+        configManager.updateModelPlaceholder('siliconflow');
+    }
 });
 
 // 导出配置管理器供其他页面使用

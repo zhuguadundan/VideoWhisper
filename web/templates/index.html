@@ -17,9 +17,14 @@
                 <div class="row align-items-center justify-content-center text-center py-5">
                     <div class="col-lg-8">
                         <div class="d-flex justify-content-end mb-3">
-                            <a href="/settings" class="btn btn-outline-light">
-                                <i class="fas fa-cog me-2"></i>API设置
-                            </a>
+                            <div class="btn-group">
+                                <a href="/files" class="btn btn-outline-light">
+                                    <i class="fas fa-folder me-2"></i>文件管理
+                                </a>
+                                <a href="/settings" class="btn btn-outline-light">
+                                    <i class="fas fa-cog me-2"></i>API设置
+                                </a>
+                            </div>
                         </div>
                         <div class="hero-icon mb-4">
                             <i class="fas fa-video"></i>
@@ -70,6 +75,7 @@
                                     <div class="col-lg-4">
                                         <div class="form-floating">
                                             <select class="form-select form-control-modern" id="llmProvider">
+                                                <option value="siliconflow" selected>硅基流动 (默认)</option>
                                                 <option value="openai">OpenAI GPT-4</option>
                                                 <option value="gemini">Google Gemini</option>
                                             </select>

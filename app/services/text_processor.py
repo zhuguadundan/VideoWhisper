@@ -1,10 +1,19 @@
-import openai
-import google.generativeai as genai
+try:
+    import openai
+except ImportError:
+    openai = None
+
+try:
+    import google.generativeai as genai
+except ImportError:
+    genai = None
+
 from typing import Dict, Any, Optional, List
 from app.config.settings import Config
 
 class TextProcessor:
-    def __init__(self, openai_config=None, gemini_config=None):
+    def __init__(self, openai_config=None, gemini_config=None, siliconflow_config=None):
+        # 初始化配置
         if openai_config:
             self.openai_config = openai_config
         else:
@@ -14,10 +23,15 @@ class TextProcessor:
             self.gemini_config = gemini_config
         else:
             self.gemini_config = Config.get_api_config('gemini')
+            
+        if siliconflow_config:
+            self.siliconflow_config = siliconflow_config
+        else:
+            self.siliconflow_config = Config.get_api_config('siliconflow')
         
         # 初始化 OpenAI Client
         self.openai_client = None
-        if self.openai_config.get('api_key'):
+        if self.openai_config.get('api_key') and openai:
             try:
                 self.openai_client = openai.OpenAI(
                     api_key=self.openai_config['api_key'],
@@ -26,23 +40,159 @@ class TextProcessor:
             except TypeError as e:
                 # 如果遇到proxies参数错误，尝试不使用base_url
                 if 'proxies' in str(e):
-                    self.openai_client = openai.OpenAI(
-                        api_key=self.openai_config['api_key']
-                    )
+                    try:
+                        self.openai_client = openai.OpenAI(
+                            api_key=self.openai_config['api_key']
+                        )
+                    except Exception:
+                        self.openai_client = None
                 else:
-                    raise e
+                    self.openai_client = None
+            except Exception:
+                self.openai_client = None
         
         # 初始化 Gemini
-        if self.gemini_config.get('api_key'):
-            # 如果配置了自定义base_url，设置为环境变量
-            if self.gemini_config.get('base_url'):
-                import os
-                os.environ['GOOGLE_AI_STUDIO_API_URL'] = self.gemini_config['base_url']
+        self.gemini_model = None
+        if self.gemini_config.get('api_key') and genai:
+            try:
+                # 如果配置了自定义base_url，设置为环境变量
+                if self.gemini_config.get('base_url'):
+                    import os
+                    os.environ['GOOGLE_AI_STUDIO_API_URL'] = self.gemini_config['base_url']
+                
+                genai.configure(api_key=self.gemini_config['api_key'])
+                self.gemini_model = genai.GenerativeModel(
+                    self.gemini_config.get('model', 'gemini-pro')
+                )
+            except Exception:
+                self.gemini_model = None
+                
+        # 初始化 SiliconFlow Client (使用OpenAI兼容接口)
+        self.siliconflow_client = None
+        if self.siliconflow_config.get('api_key'):
+            try:
+                self.siliconflow_client = openai.OpenAI(
+                    api_key=self.siliconflow_config['api_key'],
+                    base_url=self.siliconflow_config.get('base_url', 'https://api.siliconflow.cn/v1')
+                )
+            except Exception:
+                self.siliconflow_client = None
+    
+    def set_runtime_config(self, text_processor_config: dict):
+        """设置运行时配置"""
+        if not text_processor_config:
+            return
             
-            genai.configure(api_key=self.gemini_config['api_key'])
-            self.gemini_model = genai.GenerativeModel(
-                self.gemini_config.get('model', 'gemini-pro')
+        provider = text_processor_config.get('provider', 'siliconflow')
+        api_key = text_processor_config.get('api_key')
+        base_url = text_processor_config.get('base_url')
+        model = text_processor_config.get('model')
+        
+        if not api_key:
+            return
+            
+        # 根据provider更新对应的配置和客户端
+        if provider == 'siliconflow':
+            self.siliconflow_config = {
+                'api_key': api_key,
+                'base_url': base_url or 'https://api.siliconflow.cn/v1',
+                'model': model or 'Qwen/Qwen3-Coder-30B-A3B-Instruct'
+            }
+            try:
+                self.siliconflow_client = openai.OpenAI(
+                    api_key=api_key,
+                    base_url=self.siliconflow_config['base_url']
+                )
+            except Exception:
+                self.siliconflow_client = None
+                
+        elif provider == 'custom':
+            # 自定义选项使用OpenAI兼容接口
+            self.openai_config = {
+                'api_key': api_key,
+                'base_url': base_url,
+                'model': model or 'gpt-4'
+            }
+            try:
+                self.openai_client = openai.OpenAI(
+                    api_key=api_key,
+                    base_url=base_url if base_url else None
+                )
+            except Exception:
+                self.openai_client = None
+                
+        elif provider == 'gemini':
+            self.gemini_config = {
+                'api_key': api_key,
+                'base_url': base_url,
+                'model': model or 'gemini-pro'
+            }
+            try:
+                # 如果配置了自定义base_url，设置为环境变量
+                if base_url:
+                    import os
+                    os.environ['GOOGLE_AI_STUDIO_API_URL'] = base_url
+                
+                genai.configure(api_key=api_key)
+                self.gemini_model = genai.GenerativeModel(
+                    self.gemini_config['model']
+                )
+            except Exception:
+                self.gemini_model = None
+    
+    def get_available_providers(self) -> List[str]:
+        """获取可用的服务提供商列表"""
+        available = []
+        if self.siliconflow_client:
+            available.append('siliconflow')
+        if self.openai_client:
+            available.append('openai')
+        if self.gemini_model:
+            available.append('gemini')
+        return available
+    
+    def is_provider_available(self, provider: str) -> bool:
+        """检查指定的服务提供商是否可用"""
+        return provider.lower() in self.get_available_providers()
+    
+    def get_default_provider(self) -> str:
+        """获取默认可用的服务提供商"""
+        available = self.get_available_providers()
+        if not available:
+            raise ValueError("没有可用的AI文本处理服务提供商，请先配置API密钥")
+        
+        # 优先级：siliconflow > openai > gemini
+        if 'siliconflow' in available:
+            return 'siliconflow'
+        elif 'openai' in available:
+            return 'openai'
+        else:
+            return available[0]
+    
+    def process_with_siliconflow(self, text: str, prompt_template: str,
+                               model: Optional[str] = None) -> str:
+        """使用SiliconFlow处理文本"""
+        if not self.siliconflow_client:
+            raise ValueError("SiliconFlow API密钥未配置")
+        
+        if not model:
+            model = self.siliconflow_config.get('model', 'Qwen/Qwen3-Coder-30B-A3B-Instruct')
+        
+        try:
+            response = self.siliconflow_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": prompt_template},
+                    {"role": "user", "content": text}
+                ],
+                temperature=0.3,
+                max_tokens=4000
             )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            raise Exception(f"SiliconFlow处理失败: {e}")
     
     def process_with_openai(self, text: str, prompt_template: str, 
                           model: Optional[str] = None) -> str:
@@ -82,8 +232,12 @@ class TextProcessor:
         except Exception as e:
             raise Exception(f"Gemini处理失败: {e}")
     
-    def generate_transcript(self, raw_text: str, provider: str = 'openai') -> str:
+    def generate_transcript(self, raw_text: str, provider: str = None) -> str:
         """生成格式化的逐字稿"""
+        # 如果没有指定provider或指定的provider不可用，使用默认provider
+        if not provider or not self.is_provider_available(provider):
+            provider = self.get_default_provider()
+        
         prompt = """请将以下语音转文字的原始文本整理成格式规范的逐字稿。要求：
 1. 修正语音识别可能的错误
 2. 添加适当的标点符号
@@ -93,15 +247,20 @@ class TextProcessor:
 
 请直接输出整理后的逐字稿，不要添加额外说明。"""
         
-        if provider.lower() == 'openai':
+        if provider.lower() == 'siliconflow':
+            return self.process_with_siliconflow(raw_text, prompt)
+        elif provider.lower() == 'openai' or provider.lower() == 'custom':
             return self.process_with_openai(raw_text, prompt)
         elif provider.lower() == 'gemini':
             return self.process_with_gemini(raw_text, prompt)
         else:
             raise ValueError(f"不支持的服务提供商: {provider}")
     
-    def generate_summary(self, transcript: str, provider: str = 'openai') -> Dict[str, str]:
+    def generate_summary(self, transcript: str, provider: str = None) -> Dict[str, str]:
         """生成总结报告"""
+        # 如果没有指定provider或指定的provider不可用，使用默认provider
+        if not provider or not self.is_provider_available(provider):
+            provider = self.get_default_provider()
         prompts = {
             'brief_summary': """请为以下逐字稿生成一个简洁的摘要（200字以内）：
 
@@ -140,7 +299,9 @@ class TextProcessor:
         
         for summary_type, prompt in prompts.items():
             try:
-                if provider.lower() == 'openai':
+                if provider.lower() == 'siliconflow':
+                    results[summary_type] = self.process_with_siliconflow(transcript, prompt)
+                elif provider.lower() == 'openai' or provider.lower() == 'custom':
                     results[summary_type] = self.process_with_openai(transcript, prompt)
                 elif provider.lower() == 'gemini':
                     results[summary_type] = self.process_with_gemini(transcript, prompt)
@@ -151,8 +312,12 @@ class TextProcessor:
         
         return results
     
-    def analyze_content(self, transcript: str, provider: str = 'openai') -> Dict[str, Any]:
+    def analyze_content(self, transcript: str, provider: str = None) -> Dict[str, Any]:
         """内容分析"""
+        # 如果没有指定provider或指定的provider不可用，使用默认provider
+        if not provider or not self.is_provider_available(provider):
+            provider = self.get_default_provider()
+            
         prompt = """请对以下逐字稿进行内容分析，输出JSON格式的结果：
 
 {
@@ -167,7 +332,9 @@ class TextProcessor:
 请只输出JSON，不要添加其他内容。"""
         
         try:
-            if provider.lower() == 'openai':
+            if provider.lower() == 'siliconflow':
+                result = self.process_with_siliconflow(transcript, prompt)
+            elif provider.lower() == 'openai' or provider.lower() == 'custom':
                 result = self.process_with_openai(transcript, prompt)
             elif provider.lower() == 'gemini':
                 result = self.process_with_gemini(transcript, prompt)

@@ -2,11 +2,145 @@
 let currentTaskId = null;
 let progressInterval = null;
 
+// 辅助函数：获取API配置
+function getApiConfig() {
+    try {
+        const storageKey = 'videowhisper_api_config';
+        const encrypted = localStorage.getItem(storageKey);
+        if (!encrypted) return null;
+        
+        return JSON.parse(atob(encrypted));
+    } catch (error) {
+        console.error('读取配置失败:', error);
+        return null;
+    }
+}
+
+// 辅助函数：验证配置是否有效
+function hasValidConfig(config) {
+    if (!config) return false;
+    
+    // 至少需要硅基流动的语音识别配置，或者文本处理器配置
+    const hasSiliconflow = config.siliconflow && config.siliconflow.api_key;
+    const hasTextProcessor = config.text_processor && config.text_processor.api_key;
+    
+    return hasSiliconflow || hasTextProcessor;
+}
+
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
     initializeEventListeners();
+    loadAvailableProviders();
     loadHistoryTasks();
 });
+
+// 加载可用的AI提供商
+async function loadAvailableProviders() {
+    try {
+        // 从localStorage读取API配置
+        const config = getApiConfig();
+        const select = document.getElementById('llmProvider');
+        select.innerHTML = '';
+        
+        if (config && hasValidConfig(config)) {
+            // 添加可用的提供商选项
+            const providerNames = {
+                'siliconflow': '硅基流动',
+                'openai': 'OpenAI GPT-4',
+                'gemini': 'Google Gemini'
+            };
+            
+            // 检查硅基流动配置
+            if (config.siliconflow && config.siliconflow.api_key) {
+                const option = document.createElement('option');
+                option.value = 'siliconflow';
+                option.textContent = providerNames.siliconflow + ' (语音识别)';
+                option.selected = true;
+                select.appendChild(option);
+            }
+            
+            // 检查文本处理器配置
+            if (config.text_processor && config.text_processor.api_key) {
+                const provider = config.text_processor.provider || 'siliconflow';
+                const option = document.createElement('option');
+                option.value = provider;
+                
+                // 根据提供商类型显示不同的名称
+                if (provider === 'siliconflow') {
+                    option.textContent = providerNames.siliconflow;
+                } else if (provider === 'custom') {
+                    option.textContent = '自定义 (兼容OpenAI)';
+                } else {
+                    option.textContent = providerNames[provider] || provider;
+                }
+                
+                if (!config.siliconflow || !config.siliconflow.api_key) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            }
+            
+            // 如果有配置，隐藏警告
+            hideConfigWarning();
+        } else {
+            // 没有可用的提供商，显示警告
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '请先配置API密钥';
+            option.disabled = true;
+            option.selected = true;
+            select.appendChild(option);
+            
+            showConfigWarning();
+        }
+    } catch (error) {
+        console.error('加载提供商失败:', error);
+        showConfigWarning();
+    }
+}
+
+// 显示配置警告
+function showConfigWarning() {
+    let warning = document.getElementById('configWarning');
+    if (!warning) {
+        warning = document.createElement('div');
+        warning.id = 'configWarning';
+        warning.className = 'alert alert-warning mt-3';
+        warning.innerHTML = `
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <strong>配置提醒：</strong>请先在 
+            <a href="/settings" class="alert-link">设置页面</a> 
+            配置AI服务API密钥，然后刷新页面。
+        `;
+        
+        // 插入到表单后面
+        const form = document.querySelector('form');
+        form.parentNode.insertBefore(warning, form.nextSibling);
+    }
+    warning.style.display = 'block';
+    
+    // 禁用提交按钮
+    const submitBtn = document.getElementById('submitBtn');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-cog me-2"></i>请先配置API';
+    }
+}
+
+// 隐藏配置警告
+function hideConfigWarning() {
+    const warning = document.getElementById('configWarning');
+    if (warning) {
+        warning.style.display = 'none';
+    }
+    
+    // 启用提交按钮
+    const submitBtn = document.getElementById('submitBtn');
+    if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-sparkles me-2"></i>开始智能处理';
+    }
+}
 
 // 初始化事件监听器
 function initializeEventListeners() {
@@ -34,6 +168,18 @@ async function handleFormSubmit(e) {
         return;
     }
     
+    if (!llmProvider) {
+        showAlert('请先配置AI服务API密钥', 'warning');
+        return;
+    }
+    
+    // 获取API配置
+    const config = getApiConfig();
+    if (!config || !hasValidConfig(config)) {
+        showAlert('请先配置API密钥', 'warning');
+        return;
+    }
+    
     // 禁用提交按钮
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>处理中...';
@@ -47,23 +193,37 @@ async function handleFormSubmit(e) {
             },
             body: JSON.stringify({
                 video_url: videoUrl,
-                llm_provider: llmProvider
+                llm_provider: llmProvider,
+                api_config: config  // 传递API配置
             })
         });
         
         const result = await response.json();
         
         if (result.success) {
-            currentTaskId = result.task_id;
+            currentTaskId = result.data.task_id;
             showStatusArea();
             startProgressMonitoring();
             showAlert(result.message, 'success');
         } else {
-            showAlert(result.message, 'danger');
+            // 显示具体的错误信息
+            let errorMessage = result.message || result.error || '处理失败';
+            if (result.error_type) {
+                errorMessage += ` (${result.error_type})`;
+            }
+            showAlert(errorMessage, 'danger');
         }
         
     } catch (error) {
-        showAlert('请求失败: ' + error.message, 'danger');
+        console.error('请求失败:', error);
+        // 网络错误或其他连接问题
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            showAlert('网络连接失败，请检查网络连接', 'danger');
+        } else if (error.name === 'SyntaxError') {
+            showAlert('服务器响应格式错误，请稍后重试', 'danger');
+        } else {
+            showAlert('请求失败: ' + error.message, 'danger');
+        }
     } finally {
         // 重新启用提交按钮
         submitBtn.disabled = false;
@@ -101,6 +261,19 @@ function startProgressMonitoring() {
         
         try {
             const response = await fetch(`/api/progress/${currentTaskId}`);
+            
+            if (!response.ok) {
+                if (response.status === 404) {
+                    showAlert('任务不存在，可能已被删除', 'warning');
+                    clearInterval(progressInterval);
+                    return;
+                } else if (response.status >= 500) {
+                    showAlert('服务器错误，无法获取进度信息', 'danger');
+                    clearInterval(progressInterval);
+                    return;
+                }
+            }
+            
             const result = await response.json();
             
             if (result.success) {
@@ -111,11 +284,23 @@ function startProgressMonitoring() {
                     await loadResults();
                 } else if (result.data.status === 'failed') {
                     clearInterval(progressInterval);
-                    showAlert('处理失败: ' + result.data.error_message, 'danger');
+                    let errorMsg = result.data.error_message || '处理失败';
+                    showAlert('处理失败: ' + errorMsg, 'danger');
                 }
+            } else {
+                // API返回失败结果
+                clearInterval(progressInterval);
+                showAlert(result.message || result.error || '无法获取进度信息', 'danger');
             }
         } catch (error) {
             console.error('获取进度失败:', error);
+            // 网络错误不立即停止轮询，给用户一些容错时间
+            if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                console.warn('网络连接问题，继续尝试获取进度...');
+            } else {
+                clearInterval(progressInterval);
+                showAlert('无法连接到服务器，进度监控已停止', 'warning');
+            }
         }
     }, 2000);
 }
@@ -167,6 +352,17 @@ function updateProgress(data) {
 async function loadResults() {
     try {
         const response = await fetch(`/api/result/${currentTaskId}`);
+        
+        if (!response.ok) {
+            if (response.status === 404) {
+                showAlert('任务结果不存在，可能任务未完成或已被删除', 'warning');
+                return;
+            } else if (response.status >= 500) {
+                showAlert('服务器错误，无法加载结果', 'danger');
+                return;
+            }
+        }
+        
         const result = await response.json();
         
         if (result.success) {
@@ -174,10 +370,17 @@ async function loadResults() {
             showResultArea();
             loadHistoryTasks(); // 刷新历史任务
         } else {
-            showAlert(result.message, 'danger');
+            showAlert(result.message || result.error || '加载结果失败', 'danger');
         }
     } catch (error) {
-        showAlert('加载结果失败: ' + error.message, 'danger');
+        console.error('加载结果失败:', error);
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            showAlert('网络连接失败，无法加载结果', 'danger');
+        } else if (error.name === 'SyntaxError') {
+            showAlert('服务器响应格式错误', 'danger');
+        } else {
+            showAlert('加载结果失败: ' + error.message, 'danger');
+        }
     }
 }
 

@@ -24,6 +24,14 @@ class VideoProcessor:
             self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
         
+        # 添加临时目录配置
+        temp_dir = self.config['system']['temp_dir']
+        if not os.path.isabs(temp_dir):
+            self.temp_dir = os.path.abspath(temp_dir)
+        else:
+            self.temp_dir = temp_dir
+        os.makedirs(self.temp_dir, exist_ok=True)
+        
         # 初始化服务
         self.video_downloader = VideoDownloader()
         self.audio_extractor = AudioExtractor()
@@ -49,13 +57,37 @@ class VideoProcessor:
         """获取任务"""
         return self.tasks.get(task_id)
     
-    def process_video(self, task_id: str, llm_provider: str = 'openai') -> ProcessingTask:
+    def process_video(self, task_id: str, llm_provider: str = None, api_config: dict = None) -> ProcessingTask:
         """处理视频的完整流程"""
         task = self.get_task(task_id)
         if not task:
             raise ValueError(f"任务不存在: {task_id}")
         
         try:
+            # 如果传入了api_config，临时设置配置
+            if api_config:
+                print(f"[{task_id}] 使用前端传递的API配置")
+                # 临时更新speech_to_text和text_processor的配置
+                if hasattr(self.speech_to_text, 'set_runtime_config'):
+                    self.speech_to_text.set_runtime_config(api_config.get('siliconflow', {}))
+                if hasattr(self.text_processor, 'set_runtime_config'):
+                    self.text_processor.set_runtime_config(api_config.get('text_processor', {}))
+            
+            # 检查文本处理器是否有可用的提供商
+            available_providers = self.text_processor.get_available_providers()
+            if not available_providers:
+                task.status = "failed"
+                task.error_message = "没有可用的AI文本处理服务提供商，请先在设置页面配置API密钥"
+                self.save_tasks_to_disk()
+                return task
+            
+            # 如果指定的provider不可用，使用默认provider
+            if not llm_provider or not self.text_processor.is_provider_available(llm_provider):
+                llm_provider = self.text_processor.get_default_provider()
+                print(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
+            else:
+                print(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
+            
             task.status = "processing"
             task.progress = 0
             self.save_tasks_to_disk()  # 保存状态更新
@@ -248,7 +280,15 @@ class VideoProcessor:
                 with open(self.tasks_file, 'r', encoding='utf-8') as f:
                     tasks_data = json.load(f)
                 
+                # 过滤掉未完成的任务（只加载已完成或失败的任务）
+                completed_tasks = []
                 for task_data in tasks_data:
+                    # 将未完成的任务标记为失败
+                    if task_data['status'] == 'processing':
+                        task_data['status'] = 'failed'
+                        task_data['error_message'] = '程序重启导致任务中断'
+                        task_data['progress'] = 0
+                    
                     task = ProcessingTask(
                         id=task_data['id'],
                         video_url=task_data['video_url'],
@@ -272,8 +312,15 @@ class VideoProcessor:
                         )
                     
                     self.tasks[task.id] = task
-                    
-                print(f"已加载 {len(self.tasks)} 个历史任务")
+                    completed_tasks.append(task_data)
+                
+                # 重新保存清理后的任务数据
+                if len(completed_tasks) != len(tasks_data):
+                    with open(self.tasks_file, 'w', encoding='utf-8') as f:
+                        json.dump(completed_tasks, f, ensure_ascii=False, indent=2)
+                    print(f"已清理未完成任务，加载 {len(self.tasks)} 个历史任务")
+                else:
+                    print(f"已加载 {len(self.tasks)} 个历史任务")
         except Exception as e:
             print(f"加载任务数据失败: {e}")
     

@@ -46,6 +46,40 @@
         .status-success { background-color: #28a745; }
         .status-error { background-color: #dc3545; }
         .status-untested { background-color: #6c757d; }
+        
+        /* Toast 通知样式 */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            min-width: 300px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border: 1px solid #dee2e6;
+        }
+        .toast-success { border-left: 4px solid #28a745; }
+        .toast-error { border-left: 4px solid #dc3545; }
+        .toast-warning { border-left: 4px solid #ffc107; }
+        
+        .toast-header {
+            display: flex;
+            align-items: center;
+            padding: 8px 12px;
+            background: rgba(0,0,0,0.03);
+            border-bottom: 1px solid #dee2e6;
+            border-radius: 8px 8px 0 0;
+        }
+        .toast-body {
+            padding: 12px;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
@@ -54,9 +88,14 @@
             <div class="col-lg-10">
                 <!-- 导航 -->
                 <div class="mb-4">
-                    <a href="/" class="btn btn-outline-primary">
-                        <i class="fas fa-arrow-left me-2"></i>返回首页
-                    </a>
+                    <div class="btn-group">
+                        <a href="/" class="btn btn-outline-primary">
+                            <i class="fas fa-arrow-left me-2"></i>返回首页
+                        </a>
+                        <a href="/files" class="btn btn-outline-secondary">
+                            <i class="fas fa-folder me-2"></i>文件管理
+                        </a>
+                    </div>
                 </div>
 
                 <!-- 标题 -->
@@ -117,78 +156,46 @@
                         </div>
                     </div>
 
-                    <!-- OpenAI配置 -->
+                    <!-- AI文本处理服务配置 -->
                     <div class="api-section">
                         <h5 class="mb-3">
-                            <i class="fas fa-brain me-2"></i>OpenAI GPT
-                            <span class="status-indicator status-untested" id="openai-status"></span>
-                            <small class="text-muted" id="openai-status-text">未测试</small>
+                            <i class="fas fa-brain me-2"></i>AI文本处理服务
+                            <span class="status-indicator status-untested" id="text_processor-status"></span>
+                            <small class="text-muted" id="text_processor-status-text">未测试</small>
                         </h5>
                         
                         <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">服务提供商</label>
+                                <select class="form-select" id="text_processor_provider" onchange="onProviderChange()">
+                                    <option value="siliconflow" selected>硅基流动</option>
+                                    <option value="custom">自定义 (兼容OpenAI)</option>
+                                </select>
+                            </div>
                             <div class="col-md-6">
                                 <label class="form-label">API Key</label>
                                 <div class="position-relative">
-                                    <input type="password" class="form-control" id="openai_api_key" 
-                                           placeholder="输入OpenAI API Key">
+                                    <input type="password" class="form-control" id="text_processor_api_key" 
+                                           placeholder="输入API Key">
                                     <button type="button" class="toggle-password" 
-                                            onclick="togglePasswordVisibility('openai_api_key')">
+                                            onclick="togglePasswordVisibility('text_processor_api_key')">
                                         <i class="fas fa-eye"></i>
                                     </button>
                                 </div>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label">Base URL (可选)</label>
-                                <input type="url" class="form-control" id="openai_base_url" 
-                                       placeholder="留空使用默认地址">
+                                <label class="form-label">Base URL <span id="baseurl-required" class="text-danger" style="display:none;">*</span></label>
+                                <input type="url" class="form-control" id="text_processor_base_url" 
+                                       placeholder="API基础URL (硅基流动选项为可选，自定义选项为必填)">
                             </div>
                             <div class="col-12">
                                 <label class="form-label">模型名称</label>
-                                <input type="text" class="form-control" id="openai_model" 
-                                       value="gpt-4" placeholder="OpenAI模型">
+                                <input type="text" class="form-control" id="text_processor_model" 
+                                       value="Qwen/Qwen3-Coder-30B-A3B-Instruct" placeholder="模型名称">
                             </div>
                             <div class="col-12">
                                 <button type="button" class="btn btn-outline-success test-button" 
-                                        onclick="testConnection('openai')">
-                                    <i class="fas fa-check-circle me-2"></i>测试连接
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Gemini配置 -->
-                    <div class="api-section">
-                        <h5 class="mb-3">
-                            <i class="fas fa-star me-2"></i>Google Gemini
-                            <span class="status-indicator status-untested" id="gemini-status"></span>
-                            <small class="text-muted" id="gemini-status-text">未测试</small>
-                        </h5>
-                        
-                        <div class="row g-3">
-                            <div class="col-md-4">
-                                <label class="form-label">API Key</label>
-                                <div class="position-relative">
-                                    <input type="password" class="form-control" id="gemini_api_key" 
-                                           placeholder="输入Gemini API Key">
-                                    <button type="button" class="toggle-password" 
-                                            onclick="togglePasswordVisibility('gemini_api_key')">
-                                        <i class="fas fa-eye"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">Base URL (可选)</label>
-                                <input type="url" class="form-control" id="gemini_base_url" 
-                                       placeholder="留空使用默认地址">
-                            </div>
-                            <div class="col-md-4">
-                                <label class="form-label">模型名称</label>
-                                <input type="text" class="form-control" id="gemini_model" 
-                                       value="gemini-pro" placeholder="Gemini模型">
-                            </div>
-                            <div class="col-12">
-                                <button type="button" class="btn btn-outline-success test-button" 
-                                        onclick="testConnection('gemini')">
+                                        onclick="testConnection('text_processor')">
                                     <i class="fas fa-check-circle me-2"></i>测试连接
                                 </button>
                             </div>

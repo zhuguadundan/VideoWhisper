@@ -16,11 +16,21 @@ class SpeechToText:
         self.base_url = self.config.get('base_url', '')
         self.model = self.config.get('model', 'FunAudioLLM/SenseVoiceSmall')
         
-        if not self.api_key:
-            raise ValueError("硅基流动API密钥未配置")
+        # 不在初始化时检查API密钥，而是在使用时检查
+    
+    def set_runtime_config(self, api_config: dict):
+        """设置运行时配置"""
+        if api_config:
+            self.config = api_config
+            self.api_key = self.config.get('api_key', '')
+            self.base_url = self.config.get('base_url', '')
+            self.model = self.config.get('model', 'FunAudioLLM/SenseVoiceSmall')
     
     def transcribe_audio(self, audio_path: str, language: str = 'auto') -> Dict[str, Any]:
         """转录音频文件"""
+        if not self.api_key:
+            raise ValueError("硅基流动API密钥未配置")
+            
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"音频文件不存在: {audio_path}")
         

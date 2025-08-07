@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VideoWhisper - 文件管理</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        .file-item {
+            transition: all 0.3s ease;
+            border-left: 4px solid transparent;
+        }
+        .file-item:hover {
+            background-color: rgba(0,123,255,0.1);
+            border-left-color: #007bff;
+        }
+        .file-item.selected {
+            background-color: rgba(0,123,255,0.2);
+            border-left-color: #007bff;
+        }
+        .file-type-icon {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .file-type-video { background-color: #e74c3c; }
+        .file-type-audio { background-color: #f39c12; }
+        .file-type-transcript { background-color: #3498db; }
+        .file-type-summary { background-color: #2ecc71; }
+        .file-type-data { background-color: #9b59b6; }
+        .file-type-text { background-color: #95a5a6; }
+        .file-type-image { background-color: #1abc9c; }
+        .file-type-other { background-color: #34495e; }
+        .toolbar {
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .files-container {
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .loading-spinner {
+            text-align: center;
+            padding: 40px;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .btn-danger-soft {
+            background-color: rgba(220, 53, 69, 0.1);
+            border-color: rgba(220, 53, 69, 0.2);
+            color: #dc3545;
+        }
+        .btn-danger-soft:hover {
+            background-color: rgba(220, 53, 69, 0.2);
+            border-color: rgba(220, 53, 69, 0.3);
+            color: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-4">
+        <!-- 导航栏 -->
+        <nav class="navbar navbar-expand-lg navbar-light mb-4" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); border-radius: 15px;">
+            <div class="container-fluid">
+                <a class="navbar-brand fw-bold" href="/">
+                    <i class="bi bi-camera-reels-fill text-primary"></i>
+                    VideoWhisper
+                </a>
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link" href="/">
+                        <i class="bi bi-house"></i> 首页
+                    </a>
+                    <a class="nav-link active" href="/files">
+                        <i class="bi bi-folder"></i> 文件管理
+                    </a>
+                    <a class="nav-link" href="/settings">
+                        <i class="bi bi-gear"></i> 设置
+                    </a>
+                </div>
+            </div>
+        </nav>
+
+        <!-- 统计信息卡片 -->
+        <div class="stats-card">
+            <div class="row text-center">
+                <div class="col-md-3">
+                    <div class="fw-bold fs-4" id="total-files">-</div>
+                    <div>总文件数</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="fw-bold fs-4" id="total-size">-</div>
+                    <div>总大小</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="fw-bold fs-4" id="video-count">-</div>
+                    <div>视频文件</div>
+                </div>
+                <div class="col-md-3">
+                    <div class="fw-bold fs-4" id="audio-count">-</div>
+                    <div>音频文件</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 工具栏 -->
+        <div class="toolbar">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <span class="input-group-text">
+                            <i class="bi bi-search"></i>
+                        </span>
+                        <input type="text" class="form-control" id="search-input" placeholder="搜索文件名或任务标题...">
+                    </div>
+                </div>
+                <div class="col-md-6 text-end">
+                    <div class="btn-group me-2">
+                        <button class="btn btn-outline-primary" id="select-all-btn">
+                            <i class="bi bi-check-all"></i> 全选
+                        </button>
+                        <button class="btn btn-outline-secondary" id="clear-selection-btn">
+                            <i class="bi bi-x"></i> 清空选择
+                        </button>
+                    </div>
+                    <div class="btn-group me-2">
+                        <button class="btn btn-success" id="download-selected-btn" disabled>
+                            <i class="bi bi-download"></i> 下载选中
+                        </button>
+                        <button class="btn btn-danger-soft" id="delete-selected-btn" disabled>
+                            <i class="bi bi-trash"></i> 删除选中
+                        </button>
+                    </div>
+                    <button class="btn btn-primary" id="refresh-btn">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 文件列表 -->
+        <div class="files-container">
+            <div class="loading-spinner" id="loading">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">加载中...</span>
+                </div>
+                <p class="mt-2">正在加载文件列表...</p>
+            </div>
+
+            <div class="empty-state d-none" id="empty-state">
+                <i class="bi bi-folder2-open display-1 text-muted"></i>
+                <h4>暂无文件</h4>
+                <p>还没有任何文件，先去处理一些视频吧！</p>
+                <a href="/" class="btn btn-primary">
+                    <i class="bi bi-plus"></i> 开始处理视频
+                </a>
+            </div>
+
+            <div class="d-none" id="files-list">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th width="40">
+                                    <input type="checkbox" class="form-check-input" id="select-all-checkbox">
+                                </th>
+                                <th width="40">类型</th>
+                                <th>文件名</th>
+                                <th>任务标题</th>
+                                <th>大小</th>
+                                <th>修改时间</th>
+                                <th width="120">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="files-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 删除确认模态框 -->
+    <div class="modal fade" id="deleteModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">确认删除</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>您确定要删除选中的 <span id="delete-count">0</span> 个文件吗？</p>
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        此操作不可恢复！
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-danger" id="confirm-delete-btn">确认删除</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 任务删除模态框 -->
+    <div class="modal fade" id="deleteTaskModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">确认删除任务</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>您确定要删除任务 "<span id="task-title-to-delete"></span>" 的所有文件吗？</p>
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        这将删除该任务的所有相关文件，包括视频、音频、文本等，此操作不可恢复！
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-danger" id="confirm-task-delete-btn" data-task-id="">确认删除</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/files.js') }}"></script>
+</body>
+</html>
