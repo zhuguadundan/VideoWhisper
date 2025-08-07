@@ -90,6 +90,8 @@ class VideoProcessor:
             
             task.status = "processing"
             task.progress = 0
+            task.progress_stage = "获取视频信息"
+            task.progress_detail = "正在解析视频链接..."
             self.save_tasks_to_disk()  # 保存状态更新
             
             # 1. 获取视频信息
@@ -102,30 +104,77 @@ class VideoProcessor:
                 uploader=video_info_dict['uploader']
             )
             task.progress = 10
+            task.progress_detail = f"视频时长: {self._format_timestamp(video_info_dict['duration'])}"
+            task.estimated_time = int(video_info_dict['duration'] * 0.3)  # 粗略估计处理时间
             
             # 2. 下载音频
             print(f"[{task_id}] 下载音频...")
+            task.progress_stage = "下载音频"
+            task.progress_detail = "正在从视频中提取音频..."
+            self.save_tasks_to_disk()
             audio_path = self.video_downloader.download_audio_only(task.video_url)
             task.progress = 30
             
             # 3. 处理长音频（分段）
             print(f"[{task_id}] 处理音频...")
+            task.progress_stage = "处理音频"
+            task.progress_detail = "分析音频文件..."
+            self.save_tasks_to_disk()
             audio_info = self.audio_extractor.get_audio_info(audio_path)
             
             if audio_info['duration'] > 300:  # 超过5分钟分段处理
                 segments = self.audio_extractor.split_audio_by_duration(audio_path, 300)
                 task.progress = 40
+                task.total_segments = len(segments)
+                task.progress_detail = f"音频已分割为 {len(segments)} 个片段"
+                self.save_tasks_to_disk()
                 
                 # 4. 语音转文字
                 print(f"[{task_id}] 语音转文字...")
-                transcription_results = self.speech_to_text.transcribe_audio_segments(segments)
+                task.progress_stage = "语音转文字"
+                transcription_results = []
                 
-                # 合并结果
+                for i, segment in enumerate(segments):
+                    task.processed_segments = i + 1
+                    task.progress_detail = f"正在处理第 {i+1}/{len(segments)} 个音频片段..."
+                    progress_increment = (60 - 40) * (i + 1) / len(segments)
+                    task.progress = 40 + int(progress_increment)
+                    self.save_tasks_to_disk()
+                    
+                    try:
+                        segment_result = self.speech_to_text.transcribe_audio_segments([segment])
+                        if segment_result:
+                            transcription_results.extend(segment_result)
+                        print(f"[{task_id}] 片段 {i+1} 处理成功")
+                    except Exception as e:
+                        print(f"[{task_id}] 片段 {i+1} 处理失败: {e}")
+                        # 添加空的结果占位符，保持顺序
+                        transcription_results.append({
+                            'segment_index': i,
+                            'text': '',
+                            'segments': [],
+                            'start_time': segment['start_time'],
+                            'end_time': segment['end_time'],
+                            'error': str(e)
+                        })
+                
+                task.progress = 60
+                
+                # 合并结果 - 按时间顺序排序
+                transcription_results.sort(key=lambda x: x.get('segment_index', 0))
+                
                 all_segments = []
                 full_text = ""
+                successful_segments = 0
+                
                 for result in transcription_results:
                     if not result.get('error'):
-                        full_text += result.get('text', '') + " "
+                        successful_segments += 1
+                        text = result.get('text', '').strip()
+                        if text:
+                            full_text += text + " "
+                        
+                        # 处理详细片段信息
                         for seg in result.get('segments', []):
                             all_segments.append(TranscriptionSegment(
                                 text=seg.get('text', ''),
@@ -133,15 +182,36 @@ class VideoProcessor:
                                 end_time=seg.get('end', 0),
                                 confidence=seg.get('confidence', 0.0)
                             ))
+                    else:
+                        print(f"[{task_id}] 跳过失败片段 {result.get('segment_index', '未知')}: {result.get('error', '未知错误')}")
+                
+                print(f"[{task_id}] 成功处理 {successful_segments}/{len(segments)} 个片段")
+                
+                # 如果没有成功的片段，抛出异常
+                if successful_segments == 0:
+                    raise Exception("所有音频片段处理失败")
                 
                 # 清理分段文件
                 for segment in segments:
                     try:
-                        os.remove(segment['path'])
-                    except:
-                        pass
+                        if os.path.exists(segment['path']):
+                            os.remove(segment['path'])
+                    except Exception as e:
+                        print(f"[{task_id}] 清理临时文件失败: {e}")
+                
+                # 设置语言信息
+                language = 'unknown'
+                for result in transcription_results:
+                    if not result.get('error') and result.get('language'):
+                        language = result['language']
+                        break
             else:
                 # 直接处理短音频
+                task.progress_stage = "语音转文字"
+                task.progress_detail = "处理短音频文件..."
+                task.total_segments = 1
+                task.processed_segments = 1
+                self.save_tasks_to_disk()
                 transcription_result = self.speech_to_text.transcribe_audio(audio_path)
                 full_text = transcription_result['text']
                 all_segments = [
@@ -152,17 +222,23 @@ class VideoProcessor:
                         confidence=seg.get('confidence', 0.0)
                     ) for seg in transcription_result.get('segments', [])
                 ]
+                language = transcription_result.get('language', 'unknown')
             
+            # 创建转录结果对象
+            print(f"[{task_id}] 合并转录结果: 文本长度={len(full_text)}, 片段数={len(all_segments)}")
             task.transcription = TranscriptionResult(
                 segments=all_segments,
                 full_text=full_text.strip(),
-                language=transcription_results[0].get('language', 'unknown') if transcription_results else 'unknown',
+                language=language,
                 duration=audio_info['duration']
             )
             task.progress = 60
             
             # 5. 生成格式化逐字稿
             print(f"[{task_id}] 生成逐字稿...")
+            task.progress_stage = "生成逐字稿"
+            task.progress_detail = "使用AI优化文本格式..."
+            self.save_tasks_to_disk()
             task.transcript = self.text_processor.generate_transcript(
                 task.transcription.full_text, 
                 provider=llm_provider
@@ -171,6 +247,9 @@ class VideoProcessor:
             
             # 6. 生成总结报告
             print(f"[{task_id}] 生成总结报告...")
+            task.progress_stage = "生成总结报告"
+            task.progress_detail = "AI正在分析内容并生成摘要..."
+            self.save_tasks_to_disk()
             task.summary = self.text_processor.generate_summary(
                 task.transcript,
                 provider=llm_provider
@@ -179,6 +258,9 @@ class VideoProcessor:
             
             # 7. 内容分析
             print(f"[{task_id}] 内容分析...")
+            task.progress_stage = "内容分析"
+            task.progress_detail = "提取关键信息和主题..."
+            self.save_tasks_to_disk()
             task.analysis = self.text_processor.analyze_content(
                 task.transcript,
                 provider=llm_provider
@@ -186,9 +268,15 @@ class VideoProcessor:
             task.progress = 95
             
             # 8. 保存结果
+            task.progress_stage = "保存结果"
+            task.progress_detail = "生成输出文件..."
+            self.save_tasks_to_disk()
             self._save_results(task)
             task.progress = 100
             task.status = "completed"
+            task.progress_stage = "完成"
+            task.progress_detail = "处理完成！"
+            task.estimated_time = 0
             
             # 清理临时文件
             try:
@@ -269,7 +357,13 @@ class VideoProcessor:
             "id": task.id,
             "status": task.status,
             "progress": task.progress,
+            "progress_stage": task.progress_stage,
+            "progress_detail": task.progress_detail,
+            "estimated_time": task.estimated_time,
+            "processed_segments": task.processed_segments,
+            "total_segments": task.total_segments,
             "video_title": task.video_info.title if task.video_info else "",
+            "video_duration": task.video_info.duration if task.video_info else 0,
             "error_message": task.error_message
         }
     

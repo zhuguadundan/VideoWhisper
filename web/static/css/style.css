@@ -333,6 +333,45 @@ body {
     100% { transform: translateX(100%); }
 }
 
+/* 进度详情样式 */
+#progressDetails {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 10px;
+    border-left: 3px solid #007bff;
+}
+
+#progressDetails .fas {
+    color: #007bff;
+    width: 16px;
+}
+
+#progressStage strong {
+    color: #495057;
+}
+
+#progressDetail {
+    color: #6c757d;
+}
+
+#segmentProgress {
+    color: #28a745;
+}
+
+#estimatedTime {
+    color: #fd7e14;
+}
+
+.fa-spin {
+    animation: fa-spin 1s infinite linear;
+}
+
+@keyframes fa-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
 /* Navigation Tabs */
 .nav-tabs {
     border-bottom: 2px solid rgba(0, 0, 0, 0.1);

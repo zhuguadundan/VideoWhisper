@@ -28,8 +28,21 @@ python test.py
 ```
 
 ### FFmpeg Installation
-- **Windows**: Use provided PowerShell scripts: `install-ffmpeg.ps1` or `install-ffmpeg-en.ps1`
+- **Windows**: Use provided PowerShell scripts: `install-ffmpeg-en.ps1`
 - **Linux/Mac**: Install via package manager (apt, brew, etc.)
+
+### Docker Operations
+```bash
+# Build Docker image
+build-docker.bat              # Windows
+./build-docker.sh            # Linux/Mac
+
+# Run with Docker Compose
+docker-compose up -d          # Start detached
+docker-compose logs -f        # View logs
+docker-compose down           # Stop services
+docker-compose ps             # View status
+```
 
 ## Architecture Overview
 
@@ -130,5 +143,21 @@ apis:
 ## Dependencies
 
 **Core Framework**: Flask 2.3.3, yt-dlp, ffmpeg-python
-**AI Services**: openai 1.99.1, google-generativeai 0.3.0
+**AI Services**: openai 1.99.1, google-generativeai 0.3.0  
 **Data Processing**: pyyaml, dataclasses-json, python-dotenv
+
+## Docker Deployment
+
+The system includes simplified containerization support:
+
+- **Multi-stage Dockerfile**: Based on Python 3.9-slim with FFmpeg pre-installed
+- **Simplified docker-compose.yml**: Easy deployment without complex volume or network definitions
+- **Build Scripts**: Cross-platform build automation (`build-docker.bat`, `build-docker.sh`)
+- **Config Folder**: `./config/` directory for persistent configuration storage
+- **Data Folders**: Direct folder mapping for `/app/output`, `/app/temp`, `/app/logs`
+
+Key container features:
+- Port 5000 exposed for web interface
+- Automatic restart policy
+- Simple folder-based persistence
+- Configuration stored in `./config/config.yaml`

@@ -34,8 +34,9 @@ RUN mkdir -p /app/temp /app/output /app/logs
 COPY docker-entrypoint.sh /app/
 COPY config.docker.yaml /app/config.yaml.example
 
-# 设置权限
-RUN chmod +x /app/docker-entrypoint.sh
+# 转换换行符并设置权限
+RUN sed -i 's/\r$//' /app/docker-entrypoint.sh && \
+    chmod +x /app/docker-entrypoint.sh
 
 # 暴露端口
 EXPOSE 5000

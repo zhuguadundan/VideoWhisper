@@ -65,6 +65,11 @@ class ProcessingTask:
     analysis: Dict[str, Any] = field(default_factory=dict)
     error_message: str = ""
     progress: int = 0
+    progress_stage: str = "准备中"  # 当前处理阶段
+    progress_detail: str = ""  # 详细进度信息
+    estimated_time: Optional[int] = None  # 预估剩余时间(秒)
+    processed_segments: int = 0  # 已处理的音频段数
+    total_segments: int = 0  # 总音频段数
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -81,5 +86,10 @@ class ProcessingTask:
             'summary': self.summary,
             'analysis': self.analysis,
             'error_message': self.error_message,
-            'progress': self.progress
+            'progress': self.progress,
+            'progress_stage': self.progress_stage,
+            'progress_detail': self.progress_detail,
+            'estimated_time': self.estimated_time,
+            'processed_segments': self.processed_segments,
+            'total_segments': self.total_segments
         }

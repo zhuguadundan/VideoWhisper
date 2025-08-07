@@ -84,23 +84,27 @@ class SpeechToText:
             try:
                 result = self.transcribe_audio(segment['path'])
                 
-                # 调整时间戳
+                # 调整时间戳 - 加上该片段的起始时间
                 adjusted_segments = []
-                if result['segments']:
+                if result.get('segments'):
                     for seg in result['segments']:
                         adjusted_seg = seg.copy()
-                        adjusted_seg['start'] += segment['start_time']
-                        adjusted_seg['end'] += segment['start_time']
+                        # 关键修复：正确调整时间戳
+                        adjusted_seg['start'] = seg.get('start', 0) + segment['start_time']
+                        adjusted_seg['end'] = seg.get('end', 0) + segment['start_time']
                         adjusted_segments.append(adjusted_seg)
                 
-                results.append({
+                segment_result = {
                     'segment_index': segment['index'],
-                    'text': result['text'],
+                    'text': result.get('text', '').strip(),
                     'segments': adjusted_segments,
                     'start_time': segment['start_time'],
                     'end_time': segment['end_time'],
                     'language': result.get('language', 'unknown')
-                })
+                }
+                
+                results.append(segment_result)
+                print(f"片段 {i+1} 处理成功: 文本长度={len(result.get('text', ''))}, 子片段数={len(adjusted_segments)}")
                 
                 # 添加延迟避免API限制
                 time.sleep(1)

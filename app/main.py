@@ -596,7 +596,7 @@ def test_siliconflow_text_processor(config):
         raise ConnectionError(f'API响应错误: {response.status_code}')
 
 def test_openai_connection(config, is_text_processor=False):
-    """测试OpenAI连接（包括自定义兼容OpenAI的API）"""
+    """测试OpenAI连接（包括自定义兼容OpenAI的API），使用模型列表，不消耗token"""
     if not openai:
         raise ImportError('OpenAI库未安装，请先安装: pip install openai')
     
@@ -614,23 +614,22 @@ def test_openai_connection(config, is_text_processor=False):
             base_url=config.get('base_url') if config.get('base_url') else None
         )
         
-        response = client.chat.completions.create(
-            model=config.get('model', 'gpt-4'),
-            messages=[{"role": "user", "content": "Hello"}],
-            max_tokens=5
-        )
+        # 使用模型列表进行测试
+        models = client.models.list()
+        if not list(models):
+            raise ConnectionError("模型列表为空，请检查API密钥或Base URL")
         
         # 根据是否为自定义提供商显示不同的成功消息
         if is_text_processor and config.get('actual_provider') == 'custom':
             service_type = "自定义文本处理"
-            model_info = config.get('model', 'gpt-4')
+            model_info = config.get('model', '未知')
         else:
             service_type = "文本处理" if is_text_processor else ""
-            model_info = config.get('model', 'gpt-4')
+            model_info = config.get('model', '未知')
             
         return safe_json_response(
             success=True,
-            message=f'OpenAI {service_type}API连接成功，模型: {model_info}'
+            message=f'OpenAI {service_type}API连接成功，模型: {model_info} (通过模型列表测试)'
         )
         
     except Exception as e:

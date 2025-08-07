@@ -42,7 +42,14 @@
       "Bash(docker-compose logs:*)",
       "Bash(docker login:*)",
       "Bash(docker push:*)",
-      "Bash(docker search:*)"
+      "Bash(docker search:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(find:*)",
+      "Bash(true:*)",
+      "Bash(build-docker.bat)",
+      "Bash(docker tag:*)",
+      "Bash(timeout:*)"
     ],
     "deny": []
   }

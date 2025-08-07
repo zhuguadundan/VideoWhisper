@@ -310,29 +310,69 @@ function updateProgress(data) {
     const statusText = document.getElementById('statusText');
     const progressText = document.getElementById('progressText');
     const progressBar = document.getElementById('progressBar');
+    const progressDetails = document.getElementById('progressDetails');
+    const progressStage = document.getElementById('progressStage');
+    const progressDetail = document.getElementById('progressDetail');
+    const segmentProgress = document.getElementById('segmentProgress');
+    const estimatedTime = document.getElementById('estimatedTime');
     const videoInfo = document.getElementById('videoInfo');
     
-    // 更新状态文本
     let statusMessage = '';
+    
     switch (data.status) {
         case 'pending':
-            statusMessage = '等待处理...';
+            statusMessage = '排队等待中...';
+            progressDetails.style.display = 'none';
             break;
         case 'processing':
-            if (data.progress < 10) statusMessage = '获取视频信息...';
-            else if (data.progress < 30) statusMessage = '下载音频...';
-            else if (data.progress < 40) statusMessage = '处理音频...';
-            else if (data.progress < 60) statusMessage = '语音转文字...';
-            else if (data.progress < 80) statusMessage = '生成逐字稿...';
-            else if (data.progress < 90) statusMessage = '生成总结报告...';
-            else if (data.progress < 95) statusMessage = '内容分析...';
-            else statusMessage = '保存结果...';
+            // 使用服务器提供的详细阶段信息
+            statusMessage = data.progress_stage || '处理中...';
+            progressDetails.style.display = 'block';
+            
+            // 显示详细阶段信息
+            if (data.progress_stage) {
+                progressStage.innerHTML = `<i class="fas fa-cog fa-spin me-1"></i><strong>当前阶段:</strong> ${data.progress_stage}`;
+            }
+            
+            // 显示详细进度信息
+            if (data.progress_detail) {
+                progressDetail.innerHTML = `<i class="fas fa-info-circle me-1"></i>${data.progress_detail}`;
+            }
+            
+            // 显示音频段处理进度（仅在语音转文字阶段）
+            if (data.total_segments > 1 && data.progress_stage === '语音转文字') {
+                segmentProgress.style.display = 'block';
+                segmentProgress.innerHTML = `<i class="fas fa-tasks me-1"></i><strong>片段进度:</strong> ${data.processed_segments}/${data.total_segments} 个音频片段`;
+            } else {
+                segmentProgress.style.display = 'none';
+            }
+            
+            // 显示预估剩余时间
+            if (data.estimated_time && data.estimated_time > 0) {
+                estimatedTime.style.display = 'block';
+                const minutes = Math.ceil(data.estimated_time / 60);
+                estimatedTime.innerHTML = `<i class="fas fa-clock me-1"></i><strong>预计还需:</strong> ${minutes} 分钟`;
+            } else {
+                estimatedTime.style.display = 'none';
+            }
             break;
         case 'completed':
             statusMessage = '处理完成!';
+            progressDetails.style.display = 'block';
+            progressStage.innerHTML = `<i class="fas fa-check-circle text-success me-1"></i><strong>已完成:</strong> 所有文件已生成`;
+            progressDetail.innerHTML = `<i class="fas fa-download me-1"></i>您现在可以下载结果文件`;
+            segmentProgress.style.display = 'none';
+            estimatedTime.style.display = 'none';
             break;
         case 'failed':
             statusMessage = '处理失败';
+            progressDetails.style.display = 'block';
+            progressStage.innerHTML = `<i class="fas fa-exclamation-triangle text-danger me-1"></i><strong>错误:</strong> 处理失败`;
+            if (data.error_message) {
+                progressDetail.innerHTML = `<i class="fas fa-info-circle me-1"></i>${data.error_message}`;
+            }
+            segmentProgress.style.display = 'none';
+            estimatedTime.style.display = 'none';
             break;
     }
     
@@ -344,7 +384,24 @@ function updateProgress(data) {
     // 显示视频信息
     if (data.video_title) {
         document.getElementById('videoTitle').textContent = data.video_title;
+        if (data.video_duration) {
+            const duration = formatDuration(data.video_duration);
+            document.getElementById('videoDuration').textContent = duration;
+        }
         videoInfo.style.display = 'block';
+    }
+}
+
+// 格式化时长显示
+function formatDuration(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    } else {
+        return `${minutes}:${secs.toString().padStart(2, '0')}`;
     }
 }
 

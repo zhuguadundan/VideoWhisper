@@ -41,11 +41,11 @@ else
     echo "✓ FFmpeg已安装"
 fi
 
-# 复制配置文件
+# 准备配置文件
 echo "准备配置文件..."
-if [ ! -f .env ]; then
-    cp .env.example .env
-    echo "✓ 已创建.env文件，请填入你的API密钥"
+if [ ! -f config.yaml ]; then
+    echo "请手动创建config.yaml文件，填入你的API密钥"
+    echo "可参考项目文档中的配置示例"
 fi
 
 # 设置权限
