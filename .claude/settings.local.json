@@ -55,7 +55,8 @@
       "Bash(.\\build-docker.bat:*)",
       "Bash(cmd /c:*)",
       "Bash(cmd /c:*)",
-      "Bash(docker rm:*)"
+      "Bash(docker rm:*)",
+      "Bash(docker system info:*)"
     ],
     "deny": []
   }

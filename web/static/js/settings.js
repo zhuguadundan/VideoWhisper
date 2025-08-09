@@ -18,6 +18,9 @@ class APIConfigManager {
                 api_key: document.getElementById('text_processor_api_key').value,
                 base_url: document.getElementById('text_processor_base_url').value,
                 model: document.getElementById('text_processor_model').value
+            },
+            youtube: {
+                cookies: document.getElementById('youtube_cookies').value
             }
         };
 
@@ -53,6 +56,12 @@ class APIConfigManager {
                 // 设置默认值
                 document.getElementById('text_processor_provider').value = 'siliconflow';
                 this.updateModelPlaceholder('siliconflow');
+            }
+            
+            // 加载 YouTube cookies
+            if (config.youtube) {
+                document.getElementById('youtube_cookies').value = config.youtube.cookies || '';
+                this.updateYouTubeStatus(config.youtube.cookies ? 'configured' : 'untested');
             }
             
         } catch (error) {
@@ -249,6 +258,34 @@ class APIConfigManager {
             document.body.removeChild(toast);
         });
     }
+
+    // 更新 YouTube 状态
+    updateYouTubeStatus(status, text) {
+        const indicator = document.getElementById('youtube-status');
+        const textElement = document.getElementById('youtube-status-text');
+        
+        indicator.className = 'status-indicator';
+        
+        switch (status) {
+            case 'configured':
+                indicator.classList.add('status-success');
+                textElement.textContent = text || '已配置';
+                break;
+            case 'error':
+                indicator.classList.add('status-error');
+                textElement.textContent = text || '配置错误';
+                break;
+            default:
+                indicator.classList.add('status-untested');
+                textElement.textContent = text || '可选配置';
+        }
+    }
+
+    // 获取 YouTube cookies（用于发送请求时携带）
+    getYouTubeCookies() {
+        const config = this.getConfig();
+        return config?.youtube?.cookies || '';
+    }
 }
 
 // 实例化配置管理器
@@ -307,3 +344,113 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // 导出配置管理器供其他页面使用
 window.APIConfigManager = APIConfigManager;
+
+// YouTube cookies 相关函数
+function showCookieGuide() {
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.innerHTML = `
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fab fa-youtube me-2"></i>YouTube Cookies 获取指南</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="accordion" id="cookieGuideAccordion">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#chrome-guide">
+                                    <i class="fab fa-chrome me-2"></i>Chrome 浏览器
+                                </button>
+                            </h2>
+                            <div id="chrome-guide" class="accordion-collapse collapse show">
+                                <div class="accordion-body">
+                                    <ol>
+                                        <li>在 Chrome 中打开 <strong>YouTube.com</strong> 并确保已登录</li>
+                                        <li>按 <kbd>F12</kbd> 打开开发者工具</li>
+                                        <li>点击 <strong>Application</strong> 标签页</li>
+                                        <li>在左侧展开 <strong>Cookies</strong> → <strong>https://www.youtube.com</strong></li>
+                                        <li>选择所有 cookie，右键复制或使用 Ctrl+A 全选后复制</li>
+                                        <li>粘贴到上面的文本框中</li>
+                                    </ol>
+                                    <div class="alert alert-info">
+                                        <i class="fas fa-lightbulb me-2"></i>
+                                        <strong>提示：</strong>确保复制格式为 "name=value; name2=value2" 的字符串
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#firefox-guide">
+                                    <i class="fab fa-firefox me-2"></i>Firefox 浏览器
+                                </button>
+                            </h2>
+                            <div id="firefox-guide" class="accordion-collapse collapse">
+                                <div class="accordion-body">
+                                    <ol>
+                                        <li>在 Firefox 中打开 <strong>YouTube.com</strong> 并确保已登录</li>
+                                        <li>按 <kbd>F12</kbd> 打开开发者工具</li>
+                                        <li>点击 <strong>Storage</strong> 标签页</li>
+                                        <li>在左侧展开 <strong>Cookies</strong> → <strong>https://www.youtube.com</strong></li>
+                                        <li>选择所有 cookie 值并复制</li>
+                                        <li>粘贴到上面的文本框中</li>
+                                    </ol>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-warning mt-3">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <strong>安全提示：</strong>
+                        <ul class="mb-0 mt-2">
+                            <li>Cookies 包含您的登录信息，请勿分享给他人</li>
+                            <li>定期更新 cookies 以保持有效性</li>
+                            <li>在公共设备使用后请清除浏览器数据</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+    
+    modal.addEventListener('hidden.bs.modal', () => {
+        document.body.removeChild(modal);
+    });
+}
+
+function clearYoutubeCookies() {
+    if (confirm('确定要清除 YouTube cookies 配置吗？')) {
+        document.getElementById('youtube_cookies').value = '';
+        configManager.updateYouTubeStatus('untested', '可选配置');
+        configManager.showToast('warning', 'Cookies 已清除', 'YouTube cookies 配置已清除');
+    }
+}
+
+function testYoutubeCookies() {
+    const cookies = document.getElementById('youtube_cookies').value.trim();
+    if (!cookies) {
+        configManager.showToast('error', '测试失败', '请先输入 YouTube cookies');
+        return;
+    }
+    
+    // 简单验证 cookies 格式
+    if (!cookies.includes('=') || (!cookies.includes(';') && cookies.split('=').length !== 2)) {
+        configManager.updateYouTubeStatus('error', '格式错误');
+        configManager.showToast('error', 'Cookies 格式错误', '请确保 cookies 格式为 "name=value; name2=value2"');
+        return;
+    }
+    
+    configManager.updateYouTubeStatus('configured', '已配置');
+    configManager.showToast('success', 'Cookies 配置完成', '格式验证通过，将在处理 YouTube 视频时使用');
+}

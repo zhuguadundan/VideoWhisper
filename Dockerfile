@@ -2,15 +2,15 @@
 FROM python:3.9-slim
 
 # 设置版本标签
-LABEL version="0.15.0"
-LABEL description="VideoWhisper - AI视频转文本处理平台，支持视频下载模式选择和分辨率选择，新增智能文件命名和进度优化"
+LABEL version="0.16.0"
+LABEL description="VideoWhisper - AI视频转文本处理平台，新增YouTube Cookies网页配置支持，解决反机器人验证问题"
 LABEL maintainer="VideoWhisper Team"
 
 # 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
-    APP_VERSION=0.15.0
+    APP_VERSION=0.16.0
 
 # 设置工作目录
 WORKDIR /app

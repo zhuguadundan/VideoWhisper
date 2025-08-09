@@ -60,6 +60,8 @@ class ProcessingTask:
     created_at: datetime = field(default_factory=datetime.now)
     # 音频文件路径
     audio_file_path: Optional[str] = None  # 音频文件路径
+    # YouTube cookies（可选）
+    youtube_cookies: Optional[str] = None  # YouTube cookies 字符串
     # 原有字段
     video_info: Optional[VideoInfo] = None
     transcription: Optional[TranscriptionResult] = None

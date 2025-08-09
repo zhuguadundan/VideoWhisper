@@ -41,11 +41,12 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'version': 'v0.14.0',
+        'version': 'v0.16.0',
         'features': [
             'audio_only_download',
             'automatic_temp_cleanup',
-            'docker_optimized'
+            'docker_optimized',
+            'youtube_cookies_support'
         ]
     })
 
@@ -101,10 +102,13 @@ def process_video():
         
     llm_provider = data.get('llm_provider', 'openai')
     api_config = data.get('api_config', {})
+    youtube_cookies = data.get('youtube_cookies', '')  # 获取 YouTube cookies
     
-    # 创建任务（简化版，无额外参数）
-    task_id = video_processor.create_task(video_url)
+    # 创建任务（支持 cookies 参数）
+    task_id = video_processor.create_task(video_url, youtube_cookies)
     logging.info(f"创建新任务: {task_id}, URL: {video_url} (仅音频模式)")
+    if youtube_cookies:
+        logging.info(f"任务 {task_id} 使用了 YouTube cookies")
     
     # 创建带异常处理的处理函数
     def safe_process_video():

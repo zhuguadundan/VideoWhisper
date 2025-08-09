@@ -48,10 +48,15 @@ class VideoProcessor:
         # 加载已有任务数据
         self.load_tasks_from_disk()
     
-    def create_task(self, video_url: str) -> str:
+    def create_task(self, video_url: str, youtube_cookies: str = None) -> str:
         """创建新的处理任务 - 简化版"""
         task_id = str(uuid.uuid4())
         task = ProcessingTask(id=task_id, video_url=video_url)
+        
+        # 如果提供了 cookies，存储到任务中
+        if youtube_cookies:
+            task.youtube_cookies = youtube_cookies
+            
         self.tasks[task_id] = task
         self.save_tasks_to_disk()
         return task_id
@@ -99,7 +104,7 @@ class VideoProcessor:
             
             # 1. 获取视频信息
             print(f"[{task_id}] 获取视频信息...")
-            video_info_dict = self.video_downloader.get_video_info(task.video_url)
+            video_info_dict = self.video_downloader.get_video_info(task.video_url, task.youtube_cookies)
             task.video_info = VideoInfo(
                 title=video_info_dict['title'],
                 url=video_info_dict['url'],
@@ -116,7 +121,7 @@ class VideoProcessor:
             task.progress_detail = "正在下载音频文件..."
             self.save_tasks_to_disk()
             
-            audio_path = self.video_downloader.download_audio_only(task.video_url, task.id)
+            audio_path = self.video_downloader.download_audio_only(task.video_url, task.id, cookies_str=task.youtube_cookies)
             task.audio_file_path = audio_path
             task.progress = 30
             

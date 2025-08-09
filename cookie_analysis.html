@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cookie 访问能力分析</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .result { background: #f5f5f5; padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .error { background: #ffe6e6; border-left: 4px solid #ff0000; }
+        .success { background: #e6ffe6; border-left: 4px solid #00aa00; }
+        .warning { background: #fff3cd; border-left: 4px solid #ffaa00; }
+    </style>
+</head>
+<body>
+    <h1>浏览器 Cookie 访问能力分析</h1>
+    
+    <h2>1. 当前域名 Cookies</h2>
+    <div id="current-cookies" class="result"></div>
+    
+    <h2>2. YouTube.com Cookies 访问测试</h2>
+    <div id="youtube-cookies" class="result"></div>
+    
+    <h2>3. Cookie Storage API 测试</h2>
+    <div id="cookie-store" class="result"></div>
+    
+    <h2>4. 跨域资源访问测试</h2>
+    <div id="cors-test" class="result"></div>
+
+    <script>
+        // 1. 测试当前域名的cookies
+        function testCurrentDomainCookies() {
+            const cookies = document.cookie;
+            const result = document.getElementById('current-cookies');
+            
+            if (cookies) {
+                result.innerHTML = `<strong>可访问:</strong> ${cookies}`;
+                result.className = 'result success';
+            } else {
+                result.innerHTML = '<strong>结果:</strong> 当前域名没有cookies';
+                result.className = 'result warning';
+            }
+        }
+
+        // 2. 尝试访问YouTube cookies (会失败，但验证限制)
+        async function testYouTubeCookies() {
+            const result = document.getElementById('youtube-cookies');
+            
+            try {
+                // 尝试通过iframe访问YouTube
+                const iframe = document.createElement('iframe');
+                iframe.src = 'https://www.youtube.com';
+                iframe.style.display = 'none';
+                document.body.appendChild(iframe);
+                
+                iframe.onload = () => {
+                    try {
+                        const ytCookies = iframe.contentDocument.cookie;
+                        result.innerHTML = `<strong>YouTube Cookies:</strong> ${ytCookies}`;
+                        result.className = 'result success';
+                    } catch (e) {
+                        result.innerHTML = `<strong>跨域限制:</strong> ${e.message}<br><em>这是预期的安全行为</em>`;
+                        result.className = 'result error';
+                    }
+                    document.body.removeChild(iframe);
+                };
+                
+                iframe.onerror = () => {
+                    result.innerHTML = '<strong>无法加载 YouTube iframe</strong>';
+                    result.className = 'result error';
+                    document.body.removeChild(iframe);
+                };
+                
+            } catch (e) {
+                result.innerHTML = `<strong>访问失败:</strong> ${e.message}`;
+                result.className = 'result error';
+            }
+        }
+
+        // 3. 测试现代Cookie Store API
+        async function testCookieStoreAPI() {
+            const result = document.getElementById('cookie-store');
+            
+            if ('cookieStore' in window) {
+                try {
+                    const cookies = await cookieStore.getAll();
+                    result.innerHTML = `<strong>Cookie Store API 支持:</strong> 找到 ${cookies.length} 个cookies<br>`;
+                    result.innerHTML += cookies.map(c => `${c.name}=${c.value}`).join('<br>');
+                    result.className = 'result success';
+                } catch (e) {
+                    result.innerHTML = `<strong>Cookie Store API 错误:</strong> ${e.message}`;
+                    result.className = 'result error';
+                }
+            } else {
+                result.innerHTML = '<strong>不支持 Cookie Store API</strong><br><em>这是一个实验性API，可能不被所有浏览器支持</em>';
+                result.className = 'result warning';
+            }
+        }
+
+        // 4. 测试是否可以通过CORS获取YouTube信息
+        async function testCORSAccess() {
+            const result = document.getElementById('cors-test');
+            
+            try {
+                const response = await fetch('https://www.youtube.com', { 
+                    mode: 'cors',
+                    credentials: 'include'
+                });
+                result.innerHTML = `<strong>CORS 访问成功:</strong> 状态 ${response.status}`;
+                result.className = 'result success';
+            } catch (e) {
+                result.innerHTML = `<strong>CORS 访问失败:</strong> ${e.message}<br><em>YouTube 不允许跨域请求</em>`;
+                result.className = 'result error';
+            }
+        }
+
+        // 运行所有测试
+        document.addEventListener('DOMContentLoaded', () => {
+            testCurrentDomainCookies();
+            testYouTubeCookies();
+            testCookieStoreAPI();
+            testCORSAccess();
+        });
+    </script>
+</body>
+</html>

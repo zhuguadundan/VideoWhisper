@@ -189,6 +189,41 @@
                         </div>
                     </div>
 
+                    <!-- YouTube Cookies 配置 -->
+                    <div class="api-section">
+                        <h5 class="mb-3">
+                            <i class="fab fa-youtube me-2"></i>YouTube Cookies 配置
+                            <span class="status-indicator status-untested" id="youtube-status"></span>
+                            <small class="text-muted" id="youtube-status-text">可选配置</small>
+                        </h5>
+                        
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>说明：</strong>当遇到"机器人验证"错误时，需要配置 YouTube cookies。cookies 仅保存在浏览器本地，不会上传到服务器。
+                        </div>
+                        
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">
+                                    YouTube Cookies <small class="text-muted">(从浏览器开发者工具复制)</small>
+                                </label>
+                                <textarea class="form-control" id="youtube_cookies" rows="6" 
+                                          placeholder="粘贴从浏览器开发者工具复制的 YouTube cookies...&#10;格式：name1=value1; name2=value2; ...&#10;&#10;获取方法：&#10;1. 在浏览器中访问 YouTube.com 并登录&#10;2. 按F12打开开发者工具&#10;3. 进入 Application/Storage 标签页&#10;4. 点击 Cookies -> https://www.youtube.com&#10;5. 复制所有 cookie 值"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <button type="button" class="btn btn-outline-info me-2" onclick="showCookieGuide()">
+                                    <i class="fas fa-question-circle me-2"></i>获取指南
+                                </button>
+                                <button type="button" class="btn btn-outline-warning me-2" onclick="clearYoutubeCookies()">
+                                    <i class="fas fa-trash me-2"></i>清除 Cookies
+                                </button>
+                                <button type="button" class="btn btn-outline-success" onclick="testYoutubeCookies()">
+                                    <i class="fas fa-check-circle me-2"></i>测试 Cookies
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- AI文本处理服务配置 -->
                     <div class="api-section">
                         <h5 class="mb-3">

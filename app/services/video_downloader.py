@@ -14,7 +14,7 @@ class VideoDownloader:
         self.file_manager = FileManager()
         os.makedirs(self.temp_dir, exist_ok=True)
     
-    def _get_downloader_config(self, url: str) -> Dict[str, Any]:
+    def _get_downloader_config(self, url: str, cookies_str: str = None) -> Dict[str, Any]:
         """根据URL获取下载器配置"""
         base_opts = {
             'quiet': self.config.get('downloader', {}).get('general', {}).get('quiet', False),
@@ -32,12 +32,63 @@ class VideoDownloader:
                 },
                 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             })
+            
+            # 优先使用传入的 cookies 字符串
+            if cookies_str:
+                # 创建临时 cookies 文件
+                import tempfile
+                cookies_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+                cookies_file.write("# Netscape HTTP Cookie File\n")
+                
+                # 解析 cookies 字符串并写入文件
+                for cookie_pair in cookies_str.split(';'):
+                    cookie_pair = cookie_pair.strip()
+                    if '=' in cookie_pair:
+                        name, value = cookie_pair.split('=', 1)
+                        name, value = name.strip(), value.strip()
+                        # 简化的 Netscape cookies 格式
+                        cookies_file.write(f".youtube.com\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n")
+                
+                cookies_file.close()
+                base_opts['cookiefile'] = cookies_file.name
+            else:
+                # 尝试从 cookies 文件加载
+                cookies_path = os.path.join(os.getcwd(), 'cookies.txt')
+                if os.path.exists(cookies_path):
+                    base_opts['cookiefile'] = cookies_path
+                else:
+                    # 尝试从浏览器导入 cookies
+                    try:
+                        base_opts['cookiesfrombrowser'] = ('chrome',)
+                    except:
+                        # 如果浏览器 cookies 导入失败，尝试其他浏览器
+                        for browser in ['firefox', 'edge', 'safari']:
+                            try:
+                                base_opts['cookiesfrombrowser'] = (browser,)
+                                break
+                            except:
+                                continue
         
         return base_opts
     
-    def get_video_info(self, url: str) -> Dict[str, Any]:
+    def _parse_cookies_string(self, cookies_str: str) -> Dict[str, str]:
+        """解析 cookies 字符串为字典"""
+        try:
+            cookies_dict = {}
+            # 处理格式: "name1=value1; name2=value2; ..."
+            for cookie_pair in cookies_str.split(';'):
+                cookie_pair = cookie_pair.strip()
+                if '=' in cookie_pair:
+                    name, value = cookie_pair.split('=', 1)
+                    cookies_dict[name.strip()] = value.strip()
+            return cookies_dict
+        except Exception as e:
+            print(f"解析cookies失败: {e}")
+            return {}
+    
+    def get_video_info(self, url: str, cookies_str: str = None) -> Dict[str, Any]:
         """获取视频基本信息"""
-        ydl_opts = self._get_downloader_config(url)
+        ydl_opts = self._get_downloader_config(url, cookies_str)
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
@@ -53,15 +104,24 @@ class VideoDownloader:
             except Exception as e:
                 # 提供更友好的错误信息
                 error_msg = str(e)
-                raise Exception(f"无法获取视频信息: {error_msg}")
+                
+                # 检查是否是YouTube的机器人验证错误
+                if "Sign in to confirm you're not a bot" in error_msg or "Use --cookies" in error_msg:
+                    raise Exception(f"YouTube 需要身份验证。请尝试以下解决方案：\n"
+                                  f"1. 将 cookies.txt 文件放在项目根目录下\n"
+                                  f"2. 确保已安装并登录 Chrome/Firefox 浏览器\n"
+                                  f"3. 如果问题持续，请尝试其他视频链接\n"
+                                  f"原始错误: {error_msg}")
+                else:
+                    raise Exception(f"无法获取视频信息: {error_msg}")
     
-    def download_audio_only(self, url: str, task_id: str, output_path: Optional[str] = None) -> str:
+    def download_audio_only(self, url: str, task_id: str, output_path: Optional[str] = None, cookies_str: str = None) -> str:
         """仅下载音频"""
         if not output_path:
             task_temp_dir = self.file_manager.get_task_temp_dir(task_id)
             output_path = os.path.join(task_temp_dir, '%(title)s.%(ext)s')
         
-        ydl_opts = self._get_downloader_config(url)
+        ydl_opts = self._get_downloader_config(url, cookies_str)
         ydl_opts.update({
             'outtmpl': output_path,
             'format': self.config.get('downloader', {}).get('general', {}).get('audio_format', 'bestaudio/best'),
@@ -85,7 +145,16 @@ class VideoDownloader:
                 return audio_filename
             except Exception as e:
                 error_msg = str(e)
-                raise Exception(f"音频下载失败: {error_msg}")
+                
+                # 检查是否是YouTube的机器人验证错误
+                if "Sign in to confirm you're not a bot" in error_msg or "Use --cookies" in error_msg:
+                    raise Exception(f"YouTube 需要身份验证。请尝试以下解决方案：\n"
+                                  f"1. 将 cookies.txt 文件放在项目根目录下\n"
+                                  f"2. 确保已安装并登录 Chrome/Firefox 浏览器\n"
+                                  f"3. 如果问题持续，请尝试其他视频链接\n"
+                                  f"原始错误: {error_msg}")
+                else:
+                    raise Exception(f"音频下载失败: {error_msg}")
     
     def cleanup_temp_files(self):
         """清理临时文件"""

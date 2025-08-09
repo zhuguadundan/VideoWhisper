@@ -217,6 +217,11 @@ async function handleFormSubmit(e) {
             api_config: config  // 传递API配置
         };
         
+        // 添加 YouTube cookies（如果有配置）
+        if (config && config.youtube && config.youtube.cookies) {
+            requestData.youtube_cookies = config.youtube.cookies;
+        }
+        
         const response = await fetch('/api/process', {
             method: 'POST',
             headers: {
