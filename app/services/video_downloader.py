@@ -3,11 +3,15 @@ import os
 import asyncio
 from typing import Dict, Any, Optional
 from app.config.settings import Config
+from app.services.file_manager import FileManager
 
 class VideoDownloader:
+    """简化的视频下载器 - 仅支持音频下载"""
+    
     def __init__(self):
         self.config = Config.load_config()
         self.temp_dir = self.config['system']['temp_dir']
+        self.file_manager = FileManager()
         os.makedirs(self.temp_dir, exist_ok=True)
     
     def _get_downloader_config(self, url: str) -> Dict[str, Any]:
@@ -32,7 +36,7 @@ class VideoDownloader:
         return base_opts
     
     def get_video_info(self, url: str) -> Dict[str, Any]:
-        """获取视频信息"""
+        """获取视频基本信息"""
         ydl_opts = self._get_downloader_config(url)
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -43,37 +47,19 @@ class VideoDownloader:
                     'duration': info.get('duration', 0),
                     'uploader': info.get('uploader', 'Unknown'),
                     'url': url,
-                    'formats': info.get('formats', [])
+                    'thumbnail': info.get('thumbnail', ''),
+                    'description': info.get('description', '')[:500] + '...' if info.get('description', '') else ''
                 }
             except Exception as e:
                 # 提供更友好的错误信息
                 error_msg = str(e)
                 raise Exception(f"无法获取视频信息: {error_msg}")
     
-    def download_video(self, url: str, output_path: Optional[str] = None) -> str:
-        """下载视频"""
-        if not output_path:
-            output_path = os.path.join(self.temp_dir, '%(title)s.%(ext)s')
-        
-        ydl_opts = self._get_downloader_config(url)
-        ydl_opts.update({
-            'outtmpl': output_path,
-            'format': self.config.get('downloader', {}).get('general', {}).get('format', 'best[height<=720]/best'),
-        })
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                info = ydl.extract_info(url, download=True)
-                filename = ydl.prepare_filename(info)
-                return filename
-            except Exception as e:
-                error_msg = str(e)
-                raise Exception(f"下载失败: {error_msg}")
-    
-    def download_audio_only(self, url: str, output_path: Optional[str] = None) -> str:
+    def download_audio_only(self, url: str, task_id: str, output_path: Optional[str] = None) -> str:
         """仅下载音频"""
         if not output_path:
-            output_path = os.path.join(self.temp_dir, '%(title)s.%(ext)s')
+            task_temp_dir = self.file_manager.get_task_temp_dir(task_id)
+            output_path = os.path.join(task_temp_dir, '%(title)s.%(ext)s')
         
         ydl_opts = self._get_downloader_config(url)
         ydl_opts.update({
@@ -92,6 +78,10 @@ class VideoDownloader:
                 info = ydl.extract_info(url, download=True)
                 base_filename = ydl.prepare_filename(info)
                 audio_filename = os.path.splitext(base_filename)[0] + '.wav'
+                
+                # 注册文件到管理器
+                self.file_manager.register_task(task_id, [audio_filename])
+                
                 return audio_filename
             except Exception as e:
                 error_msg = str(e)
@@ -113,7 +103,7 @@ class VideoDownloader:
             'youtube': {
                 'name': 'YouTube',
                 'requires_login': False,
-                'notes': '支持所有公开视频'
+                'notes': '支持所有公开视频，仅音频下载'
             }
         }
 

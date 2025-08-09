@@ -5,6 +5,7 @@ import shutil
 import glob
 from datetime import datetime
 from app.services.video_processor import VideoProcessor
+from app.services.video_downloader import VideoDownloader
 from app.services.speech_to_text import SpeechToText
 from app.services.text_processor import TextProcessor
 from app.utils.error_handler import api_error_handler, safe_json_response
@@ -22,6 +23,7 @@ except ImportError:
 
 main_bp = Blueprint('main', __name__)
 video_processor = VideoProcessor()
+video_downloader = VideoDownloader()
 
 @main_bp.route('/')
 def index():
@@ -39,7 +41,12 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'version': 'v2.1.1'
+        'version': 'v0.14.0',
+        'features': [
+            'audio_only_download',
+            'automatic_temp_cleanup',
+            'docker_optimized'
+        ]
     })
 
 @main_bp.route('/api/providers', methods=['GET'])
@@ -57,10 +64,33 @@ def get_available_providers():
         }
     )
 
+@main_bp.route('/api/video-info', methods=['POST'])
+@api_error_handler
+def get_video_info():
+    """获取视频基本信息（仅用于显示）"""
+    data = request.get_json()
+    if not data:
+        raise ValueError("请求数据不能为空")
+        
+    video_url = data.get('video_url', '').strip()
+    if not video_url:
+        raise ValueError("请提供视频URL")
+        
+    try:
+        info = video_downloader.get_video_info(video_url)
+        return safe_json_response(
+            success=True,
+            data=info,
+            message='视频信息获取成功'
+        )
+    except Exception as e:
+        logging.error(f"获取视频信息失败: {str(e)}")
+        raise Exception(f"获取视频信息失败: {str(e)}")
+
 @main_bp.route('/api/process', methods=['POST'])
 @api_error_handler
 def process_video():
-    """处理视频请求"""
+    """处理视频请求 - 简化版，仅音频下载"""
     data = request.get_json()
     if not data:
         raise ValueError("请求数据不能为空")
@@ -72,9 +102,9 @@ def process_video():
     llm_provider = data.get('llm_provider', 'openai')
     api_config = data.get('api_config', {})
     
-    # 创建任务
+    # 创建任务（简化版，无额外参数）
     task_id = video_processor.create_task(video_url)
-    logging.info(f"创建新任务: {task_id}, URL: {video_url}")
+    logging.info(f"创建新任务: {task_id}, URL: {video_url} (仅音频模式)")
     
     # 创建带异常处理的处理函数
     def safe_process_video():
@@ -170,23 +200,57 @@ def download_file(task_id, file_type):
                 'message': '文件不存在'
             })
         
-        # 简化文件名格式
+        # 智能简化文件名格式
         def get_simple_filename(title: str, file_type: str, extension: str) -> str:
-            # 提取标题关键词（取前6个字符）
+            import re
+            
             if title:
-                # 移除特殊字符，只保留中文、英文、数字
-                import re
-                clean_title = re.sub(r'[^\u4e00-\u9fa5\w\s]', '', title)
-                # 截取前6个字符
-                short_title = clean_title[:6] if clean_title else "视频"
+                # 移除常见的无用词汇
+                noise_words = ['视频', '直播', '录播', '完整版', '高清', 'HD', '4K', '1080P', '合集', '精选', '最新', '官方']
+                clean_title = title
+                
+                # 移除噪音词汇
+                for noise in noise_words:
+                    clean_title = clean_title.replace(noise, '')
+                
+                # 移除特殊字符，只保留中文、英文、数字和常用标点
+                clean_title = re.sub(r'[^\u4e00-\u9fa5\w\s\-\|\(\)\[\]【】（）]', '', clean_title)
+                clean_title = clean_title.strip()
+                
+                # 如果标题太长，智能截取
+                if len(clean_title) > 15:
+                    # 尝试从标题中找到关键词
+                    # 按分隔符分割，取最重要的部分
+                    parts = re.split(r'[\-\|\(\)\[\]【】（）]', clean_title)
+                    if parts and len(parts) > 1:
+                        # 过滤空字符串并按长度排序
+                        valid_parts = [p.strip() for p in parts if p.strip()]
+                        if valid_parts:
+                            # 取最长且最有意义的部分
+                            main_part = max(valid_parts, key=len)
+                            if len(main_part) > 10:
+                                clean_title = main_part[:10]
+                            else:
+                                clean_title = main_part
+                        else:
+                            clean_title = clean_title[:10]
+                    else:
+                        # 直接截取前10个字符
+                        clean_title = clean_title[:10]
+                
+                # 去除首尾空格和常见分隔符
+                clean_title = clean_title.strip('- |()[]【】（）')
+                short_title = clean_title if clean_title else "视频"
             else:
                 short_title = "视频"
             
             # 根据文件类型生成简短名称
             if file_type == 'transcript':
-                return f"{short_title}逐字稿.{extension}"
+                return f"{short_title}_逐字稿.{extension}"
             elif file_type == 'summary':
-                return f"{short_title}总结报告.{extension}"
+                return f"{short_title}_总结报告.{extension}"
+            elif file_type == 'data':
+                return f"{short_title}_完整数据.{extension}"
             else:
                 return f"{short_title}_{file_type}.{extension}"
         

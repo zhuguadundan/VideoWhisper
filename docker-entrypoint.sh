@@ -22,10 +22,27 @@ else
     echo -e "${GREEN}✅ Configuration file found${NC}"
 fi
 
-# 检查必要目录
-echo -e "${YELLOW}📁 Checking directories...${NC}"
-mkdir -p /app/temp /app/output /app/logs
-echo -e "${GREEN}✅ Directories ready${NC}"
+# 检查必要目录和文件权限
+echo -e "${YELLOW}📁 Checking directories and permissions...${NC}"
+mkdir -p /app/temp /app/output /app/logs /app/config
+
+# 确保临时文件管理所需的文件存在
+if [ ! -f "/app/temp/.task_history.json" ]; then
+    echo '[]' > /app/temp/.task_history.json
+    chmod 644 /app/temp/.task_history.json
+fi
+
+# 检查目录权限
+chmod 755 /app/temp /app/output /app/logs /app/config 2>/dev/null || true
+
+echo -e "${GREEN}✅ Directories and permissions ready${NC}"
+
+# 显示存储结构信息
+echo -e "${BLUE}📊 Storage Structure:${NC}"
+echo -e "${BLUE}   - Output: /app/output (persistent results)${NC}"
+echo -e "${BLUE}   - Temp: /app/temp (latest 3 tasks only)${NC}"
+echo -e "${BLUE}   - Logs: /app/logs${NC}"
+echo -e "${BLUE}   - Config: /app/config${NC}"
 
 # 检查FFmpeg
 echo -e "${YELLOW}🎬 Checking FFmpeg...${NC}"

@@ -809,3 +809,110 @@ pre {
 .fade-out {
     animation: fadeOut 0.3s ease-out forwards;
 }
+
+/* 格式选择样式 */
+.format-badge {
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 2px solid transparent;
+    font-size: 0.85rem;
+}
+
+.format-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.format-badge.selected {
+    border-color: #fff;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.3);
+    transform: scale(1.05);
+}
+
+/* 视频质量组动画 */
+#videoQualityGroup {
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+/* 格式信息区域样式 */
+#formatInfo .alert {
+    border-radius: var(--border-radius);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+}
+
+#formatInfo .btn-close {
+    opacity: 0.6;
+}
+
+#formatInfo .btn-close:hover {
+    opacity: 1;
+}
+
+/* AI响应时间信息样式 */
+.ai-timing-info {
+    padding: 8px 12px;
+    background: linear-gradient(135deg, #f8f9ff 0%, #e3f2fd 100%);
+    border-radius: 8px;
+    border: 1px solid rgba(102, 126, 234, 0.2);
+    margin-top: 8px;
+}
+
+.ai-timing-info small {
+    display: inline-block;
+    margin-right: 12px;
+    padding: 3px 8px;
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 4px;
+    border: 1px solid rgba(102, 126, 234, 0.1);
+    font-weight: 500;
+}
+
+/* 逐字稿预览样式 */
+#transcriptPreview {
+    background: linear-gradient(135deg, #f0f7ff 0%, #e8f4f8 100%);
+    border: 1px solid rgba(102, 126, 234, 0.2);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+    transition: all 0.3s ease;
+}
+
+#transcriptPreview:hover {
+    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.15);
+    transform: translateY(-2px);
+}
+
+#transcriptPreview h6 {
+    color: var(--primary-color);
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+#transcriptPreview .transcript-content {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    background: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(10px);
+    transition: all 0.2s ease;
+}
+
+#transcriptPreview .transcript-content:hover {
+    background: rgba(255, 255, 255, 0.95);
+}
+
+/* 模态框样式优化 */
+.modal-content {
+    border-radius: var(--border-radius);
+    border: none;
+    box-shadow: var(--shadow-xl);
+    backdrop-filter: blur(20px);
+    background: rgba(255, 255, 255, 0.95);
+}
+
+.modal-header {
+    border-bottom: 1px solid rgba(102, 126, 234, 0.1);
+}
+
+.modal-footer {
+    border-top: 1px solid rgba(102, 126, 234, 0.1);
+}

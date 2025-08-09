@@ -31,22 +31,33 @@ fi
 echo -e "${GREEN}✅ Docker and Docker Compose are available${NC}"
 
 # 构建镜像
-echo -e "${YELLOW}🔨 Building Docker image...${NC}"
-docker build -t videowhisper:latest .
+echo -e "${YELLOW}🔨 Building Docker image v0.15...${NC}"
+docker build -t videowhisper:0.15 -t videowhisper:latest .
 
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✅ Docker image built successfully!${NC}"
+    echo -e "${GREEN}✅ Docker image v0.15 built successfully!${NC}"
 else
     echo -e "${RED}❌ Failed to build Docker image${NC}"
     exit 1
 fi
 
-# 检查配置文件
+# 检查配置文件和创建目录结构
 if [ ! -f "config.yaml" ]; then
     echo -e "${YELLOW}⚠️  config.yaml not found. Creating from template...${NC}"
     cp config.docker.yaml config.yaml
     echo -e "${YELLOW}💡 Please edit config.yaml and add your API keys before running${NC}"
 fi
+
+# 创建必要的目录结构
+echo -e "${YELLOW}📁 Creating directory structure for new storage management...${NC}"
+mkdir -p output temp logs config
+
+# 如果config.yaml存在，复制到config目录
+if [ -f "config.yaml" ]; then
+    cp config.yaml config/config.yaml
+fi
+
+echo -e "${GREEN}✅ Directory structure ready (temp files auto-managed, keeps latest 3 tasks)${NC}"
 
 echo -e "${BLUE}=================================${NC}"
 echo -e "${GREEN}🎉 Build completed successfully!${NC}"

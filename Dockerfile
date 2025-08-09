@@ -1,10 +1,16 @@
 # 使用Python官方镜像作为基础镜像
 FROM python:3.9-slim
 
+# 设置版本标签
+LABEL version="0.15.0"
+LABEL description="VideoWhisper - AI视频转文本处理平台，支持视频下载模式选择和分辨率选择，新增智能文件命名和进度优化"
+LABEL maintainer="VideoWhisper Team"
+
 # 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    APP_VERSION=0.15.0
 
 # 设置工作目录
 WORKDIR /app
@@ -27,8 +33,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 复制应用代码
 COPY . .
 
-# 创建必要的目录
-RUN mkdir -p /app/temp /app/output /app/logs
+# 创建必要的目录和设置权限
+RUN mkdir -p /app/temp /app/output /app/logs /app/config && \
+    chmod 755 /app/temp /app/output /app/logs /app/config && \
+    # 创建临时目录的任务历史文件占位符
+    touch /app/temp/.task_history.json && \
+    chmod 644 /app/temp/.task_history.json
 
 # 复制启动脚本和配置模板
 COPY docker-entrypoint.sh /app/

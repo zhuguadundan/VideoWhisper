@@ -53,11 +53,14 @@ class TranscriptionResult:
 
 @dataclass
 class ProcessingTask:
-    """处理任务"""
+    """处理任务 - 简化版，仅支持音频处理"""
     id: str
     video_url: str
     status: str = "pending"  # pending, processing, completed, failed
     created_at: datetime = field(default_factory=datetime.now)
+    # 音频文件路径
+    audio_file_path: Optional[str] = None  # 音频文件路径
+    # 原有字段
     video_info: Optional[VideoInfo] = None
     transcription: Optional[TranscriptionResult] = None
     transcript: str = ""
@@ -77,10 +80,12 @@ class ProcessingTask:
             'video_url': self.video_url,
             'status': self.status,
             'created_at': self.created_at.isoformat(),
+            'audio_file_path': self.audio_file_path,
             'video_info': {
                 'title': self.video_info.title if self.video_info else '',
                 'duration': self.video_info.duration if self.video_info else 0,
-                'uploader': self.video_info.uploader if self.video_info else ''
+                'uploader': self.video_info.uploader if self.video_info else '',
+                'description': self.video_info.description if self.video_info else ''
             } if self.video_info else None,
             'transcript': self.transcript,
             'summary': self.summary,

@@ -138,7 +138,7 @@ function hideConfigWarning() {
     const submitBtn = document.getElementById('submitBtn');
     if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.innerHTML = '<i class="fas fa-sparkles me-2"></i>开始智能处理';
+        submitBtn.innerHTML = '<i class="fas fa-sparkles me-2"></i>开始智能处理（仅音频）';
     }
 }
 
@@ -153,6 +153,31 @@ function initializeEventListeners() {
     
     // 刷新任务列表
     document.getElementById('refreshTasks').addEventListener('click', loadHistoryTasks);
+    
+}
+
+
+// 防抖函数
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+// URL验证
+function isValidUrl(string) {
+    try {
+        new URL(string);
+        return true;
+    } catch (_) {
+        return false;
+    }
 }
 
 // 处理表单提交
@@ -186,16 +211,18 @@ async function handleFormSubmit(e) {
     submitBtn.classList.add('loading-shimmer');
     
     try {
+        const requestData = {
+            video_url: videoUrl,
+            llm_provider: llmProvider,
+            api_config: config  // 传递API配置
+        };
+        
         const response = await fetch('/api/process', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                video_url: videoUrl,
-                llm_provider: llmProvider,
-                api_config: config  // 传递API配置
-            })
+            body: JSON.stringify(requestData)
         });
         
         const result = await response.json();
@@ -331,12 +358,36 @@ function updateProgress(data) {
             
             // 显示详细阶段信息
             if (data.progress_stage) {
-                progressStage.innerHTML = `<i class="fas fa-cog fa-spin me-1"></i><strong>当前阶段:</strong> ${data.progress_stage}`;
+                let stageIcon = getStageIcon(data.progress_stage);
+                progressStage.innerHTML = `${stageIcon}<strong>当前阶段:</strong> ${data.progress_stage}`;
             }
             
-            // 显示详细进度信息
+            // 显示详细进度信息和AI响应速度
+            let detailHtml = '';
             if (data.progress_detail) {
-                progressDetail.innerHTML = `<i class="fas fa-info-circle me-1"></i>${data.progress_detail}`;
+                detailHtml = `<i class="fas fa-info-circle me-1"></i>${data.progress_detail}`;
+            }
+            
+            // 显示AI响应时间信息
+            if (data.ai_response_times && Object.keys(data.ai_response_times).length > 0) {
+                detailHtml += '<div class="ai-timing-info mt-2">';
+                if (data.ai_response_times.transcript) {
+                    detailHtml += `<small class="text-muted"><i class="fas fa-stopwatch me-1"></i>逐字稿生成: ${data.ai_response_times.transcript.toFixed(1)}s</small>`;
+                }
+                if (data.ai_response_times.summary) {
+                    detailHtml += ` <small class="text-muted"><i class="fas fa-stopwatch me-1"></i>摘要生成: ${data.ai_response_times.summary.toFixed(1)}s</small>`;
+                }
+                if (data.ai_response_times.analysis) {
+                    detailHtml += ` <small class="text-muted"><i class="fas fa-stopwatch me-1"></i>内容分析: ${data.ai_response_times.analysis.toFixed(1)}s</small>`;
+                }
+                detailHtml += '</div>';
+            }
+            
+            progressDetail.innerHTML = detailHtml;
+            
+            // 显示逐字稿预览（如果已经生成）
+            if (data.transcript_ready && data.transcript_preview) {
+                showTranscriptPreview(data.transcript_preview, data.full_transcript);
             }
             
             // 显示音频段处理进度（仅在语音转文字阶段）
@@ -390,6 +441,105 @@ function updateProgress(data) {
         }
         videoInfo.style.display = 'block';
     }
+}
+
+// 获取阶段图标
+function getStageIcon(stage) {
+    const icons = {
+        '获取视频信息': '<i class="fas fa-info-circle text-primary me-1"></i>',
+        '下载音频': '<i class="fas fa-download text-info me-1"></i>',
+        '处理音频': '<i class="fas fa-waveform-path text-warning me-1"></i>',
+        '语音转文字': '<i class="fas fa-microphone text-success me-1"></i>',
+        '生成逐字稿': '<i class="fas fa-robot text-primary me-1 fa-spin"></i>',
+        '生成总结报告': '<i class="fas fa-brain text-info me-1 fa-spin"></i>',
+        '内容分析': '<i class="fas fa-search text-warning me-1 fa-spin"></i>',
+        '保存结果': '<i class="fas fa-save text-secondary me-1"></i>',
+        '完成': '<i class="fas fa-check-circle text-success me-1"></i>'
+    };
+    return icons[stage] || '<i class="fas fa-cog fa-spin me-1"></i>';
+}
+
+// 显示逐字稿预览
+function showTranscriptPreview(preview, fullTranscript) {
+    let previewDiv = document.getElementById('transcriptPreview');
+    if (!previewDiv) {
+        previewDiv = document.createElement('div');
+        previewDiv.id = 'transcriptPreview';
+        previewDiv.className = 'mt-3 p-3 bg-light border rounded fade-in';
+        
+        // 插入到进度详情后面
+        const progressDetails = document.getElementById('progressDetails');
+        progressDetails.appendChild(previewDiv);
+    }
+    
+    previewDiv.innerHTML = `
+        <h6><i class="fas fa-file-text me-2 text-primary"></i>逐字稿预览 <small class="text-muted">(可先查看内容)</small></h6>
+        <div class="transcript-content" style="max-height: 200px; overflow-y: auto; background: white; padding: 10px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 0.9em; line-height: 1.5;">
+            ${preview.replace(/\n/g, '<br>')}
+        </div>
+        <div class="mt-2">
+            <button class="btn btn-sm btn-outline-primary" onclick="showFullTranscript()">
+                <i class="fas fa-expand me-1"></i>查看完整逐字稿
+            </button>
+        </div>
+    `;
+    
+    // 存储完整逐字稿
+    previewDiv.dataset.fullTranscript = fullTranscript;
+    previewDiv.style.display = 'block';
+}
+
+// 显示完整逐字稿
+function showFullTranscript() {
+    const previewDiv = document.getElementById('transcriptPreview');
+    const fullTranscript = previewDiv.dataset.fullTranscript;
+    
+    if (fullTranscript) {
+        // 创建模态框显示完整逐字稿
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.id = 'transcriptModal';
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="fas fa-file-text me-2"></i>完整逐字稿</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="transcript-content" style="max-height: 60vh; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 4px; font-size: 0.95em; line-height: 1.6; white-space: pre-wrap;">
+                            ${fullTranscript.replace(/\n/g, '<br>')}
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                        <button type="button" class="btn btn-primary" onclick="copyToClipboard('${fullTranscript.replace(/'/g, '\\\'')}')">
+                            <i class="fas fa-copy me-1"></i>复制文本
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        
+        // 模态框关闭后移除元素
+        modal.addEventListener('hidden.bs.modal', () => {
+            document.body.removeChild(modal);
+        });
+    }
+}
+
+// 复制到剪贴板
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        showAlert('已复制到剪贴板', 'success');
+    }).catch(err => {
+        console.error('复制失败:', err);
+        showAlert('复制失败', 'warning');
+    });
 }
 
 // 格式化时长显示
@@ -523,11 +673,37 @@ async function downloadFile(fileType) {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = response.headers.get('Content-Disposition')?.split('filename=')[1]?.replace(/"/g, '') || `${fileType}.txt`;
+            
+            // 更好地处理中文文件名
+            let filename = `${fileType}.txt`; // 默认文件名
+            
+            // 从 Content-Disposition 头获取文件名
+            const contentDisposition = response.headers.get('Content-Disposition');
+            if (contentDisposition) {
+                // 处理 filename*=UTF-8'' 格式
+                const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/);
+                if (utf8Match) {
+                    try {
+                        filename = decodeURIComponent(utf8Match[1]);
+                    } catch (e) {
+                        console.warn('解码UTF-8文件名失败:', e);
+                    }
+                } else {
+                    // 处理普通 filename= 格式
+                    const normalMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+                    if (normalMatch) {
+                        filename = normalMatch[1];
+                    }
+                }
+            }
+            
+            a.download = filename;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
+            
+            showAlert(`文件下载成功: ${filename}`, 'success');
         } else {
             const result = await response.json();
             showAlert(result.message, 'danger');

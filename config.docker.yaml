@@ -17,11 +17,11 @@ apis:
     base_url: ""  # 可选，留空使用默认地址
     model: "gemini-pro"
 
-# 系统配置
+# 系统配置 - Docker环境优化
 system:
-  temp_dir: "/app/temp"      # Docker容器内路径
-  output_dir: "/app/output"  # Docker容器内路径
-  max_file_size: 500  # MB
+  temp_dir: "/app/temp"      # Docker容器内路径 - 自动管理最近3次任务
+  output_dir: "/app/output"  # Docker容器内路径 - 持久化存储
+  max_file_size: 500         # MB
   audio_format: "wav"
   audio_sample_rate: 16000
 
@@ -31,10 +31,21 @@ web:
   port: 5000
   debug: false       # 生产环境关闭调试模式
 
-# 视频下载配置
+# 视频下载配置 - Docker环境优化
 downloader:
-  # 通用配置
   general:
-    format: "best[height<=720]/best"
+    format: "best[height<=720]/best"  # 默认720p以节省容器空间
     audio_format: "bestaudio/best"
-    quiet: false
+    quiet: true                       # 容器环境建议开启静默模式
+
+# Docker环境说明
+# 存储结构：
+# - /app/temp: 临时文件，自动清理保留最近3次任务
+# - /app/output: 结果文件持久化存储
+# - /app/logs: 应用运行日志
+# - /app/config: 配置文件目录
+#
+# 推荐资源配置：
+# - Memory: 2GB+
+# - CPU: 1 core+
+# - Disk: 10GB+ (取决于处理的视频数量和大小)

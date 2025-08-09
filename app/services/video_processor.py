@@ -1,8 +1,11 @@
 import os
 import json
 import uuid
+import glob
+import re
+import time
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from app.models.data_models import ProcessingTask, VideoInfo, TranscriptionResult, TranscriptionSegment
 from app.services.video_downloader import VideoDownloader
 from app.services.audio_extractor import AudioExtractor
@@ -46,7 +49,7 @@ class VideoProcessor:
         self.load_tasks_from_disk()
     
     def create_task(self, video_url: str) -> str:
-        """创建新的处理任务"""
+        """创建新的处理任务 - 简化版"""
         task_id = str(uuid.uuid4())
         task = ProcessingTask(id=task_id, video_url=video_url)
         self.tasks[task_id] = task
@@ -107,12 +110,14 @@ class VideoProcessor:
             task.progress_detail = f"视频时长: {self._format_timestamp(video_info_dict['duration'])}"
             task.estimated_time = int(video_info_dict['duration'] * 0.3)  # 粗略估计处理时间
             
-            # 2. 下载音频
+            # 2. 下载音频（简化版，仅音频下载）
             print(f"[{task_id}] 下载音频...")
             task.progress_stage = "下载音频"
-            task.progress_detail = "正在从视频中提取音频..."
+            task.progress_detail = "正在下载音频文件..."
             self.save_tasks_to_disk()
-            audio_path = self.video_downloader.download_audio_only(task.video_url)
+            
+            audio_path = self.video_downloader.download_audio_only(task.video_url, task.id)
+            task.audio_file_path = audio_path
             task.progress = 30
             
             # 3. 处理长音频（分段）
@@ -191,13 +196,8 @@ class VideoProcessor:
                 if successful_segments == 0:
                     raise Exception("所有音频片段处理失败")
                 
-                # 清理分段文件
-                for segment in segments:
-                    try:
-                        if os.path.exists(segment['path']):
-                            os.remove(segment['path'])
-                    except Exception as e:
-                        print(f"[{task_id}] 清理临时文件失败: {e}")
+                # 分段文件清理由智能清理系统统一管理，这里不再立即删除
+                print(f"[{task_id}] 分段音频文件将由智能清理系统管理")
                 
                 # 设置语言信息
                 language = 'unknown'
@@ -238,34 +238,57 @@ class VideoProcessor:
             print(f"[{task_id}] 生成逐字稿...")
             task.progress_stage = "生成逐字稿"
             task.progress_detail = "使用AI优化文本格式..."
+            task.ai_start_time = time.time()
             self.save_tasks_to_disk()
+            
+            start_time = time.time()
             task.transcript = self.text_processor.generate_transcript(
                 task.transcription.full_text, 
                 provider=llm_provider
             )
-            task.progress = 80
+            ai_response_time = time.time() - start_time
+            task.ai_response_times = getattr(task, 'ai_response_times', {})
+            task.ai_response_times['transcript'] = ai_response_time
+            task.progress = 70
+            task.progress_detail = f"逐字稿生成完成 (耗时 {ai_response_time:.1f}s)"
+            
+            # 立即显示逐字稿给用户
+            task.transcript_ready = True
+            self.save_tasks_to_disk()
             
             # 6. 生成总结报告
             print(f"[{task_id}] 生成总结报告...")
             task.progress_stage = "生成总结报告"
-            task.progress_detail = "AI正在分析内容并生成摘要..."
+            task.progress_detail = f"AI正在分析内容并生成摘要... (使用 {llm_provider})"
             self.save_tasks_to_disk()
+            
+            start_time = time.time()
             task.summary = self.text_processor.generate_summary(
                 task.transcript,
                 provider=llm_provider
             )
-            task.progress = 90
+            ai_response_time = time.time() - start_time
+            task.ai_response_times['summary'] = ai_response_time
+            task.progress = 85
+            task.progress_detail = f"摘要生成完成 (耗时 {ai_response_time:.1f}s)"
+            self.save_tasks_to_disk()
             
             # 7. 内容分析
             print(f"[{task_id}] 内容分析...")
             task.progress_stage = "内容分析"
-            task.progress_detail = "提取关键信息和主题..."
+            task.progress_detail = f"提取关键信息和主题... (使用 {llm_provider})"
             self.save_tasks_to_disk()
+            
+            start_time = time.time()
             task.analysis = self.text_processor.analyze_content(
                 task.transcript,
                 provider=llm_provider
             )
+            ai_response_time = time.time() - start_time
+            task.ai_response_times['analysis'] = ai_response_time
             task.progress = 95
+            task.progress_detail = f"内容分析完成 (耗时 {ai_response_time:.1f}s)"
+            self.save_tasks_to_disk()
             
             # 8. 保存结果
             task.progress_stage = "保存结果"
@@ -278,11 +301,8 @@ class VideoProcessor:
             task.progress_detail = "处理完成！"
             task.estimated_time = 0
             
-            # 清理临时文件
-            try:
-                os.remove(audio_path)
-            except:
-                pass
+            # 清理临时文件 - 智能保留最近3次任务的文件
+            self._smart_cleanup_temp_files(task_id, audio_path)
             
             print(f"[{task_id}] 处理完成!")
             
@@ -353,7 +373,7 @@ class VideoProcessor:
         if not task:
             return {"error": "任务不存在"}
         
-        return {
+        progress_info = {
             "id": task.id,
             "status": task.status,
             "progress": task.progress,
@@ -364,8 +384,17 @@ class VideoProcessor:
             "total_segments": task.total_segments,
             "video_title": task.video_info.title if task.video_info else "",
             "video_duration": task.video_info.duration if task.video_info else 0,
-            "error_message": task.error_message
+            "error_message": task.error_message,
+            "ai_response_times": getattr(task, 'ai_response_times', {}),
+            "transcript_ready": getattr(task, 'transcript_ready', False)
         }
+        
+        # 如果逐字稿已准备好，包含逐字稿内容
+        if getattr(task, 'transcript_ready', False) and task.transcript:
+            progress_info["transcript_preview"] = task.transcript[:500] + "..." if len(task.transcript) > 500 else task.transcript
+            progress_info["full_transcript"] = task.transcript
+        
+        return progress_info
     
     def load_tasks_from_disk(self):
         """从磁盘加载任务数据"""
@@ -426,3 +455,126 @@ class VideoProcessor:
                 json.dump(tasks_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"保存任务数据失败: {e}")
+    
+    def _smart_cleanup_temp_files(self, current_task_id: str, current_audio_path: str):
+        """智能清理临时文件，保留最近3次任务的文件"""
+        try:
+            # 1. 获取所有已完成的任务，按创建时间排序
+            completed_tasks = [
+                task for task in self.tasks.values() 
+                if task.status == "completed"
+            ]
+            completed_tasks.sort(key=lambda x: x.created_at, reverse=True)
+            
+            # 2. 保留最近3次任务的ID（包括当前任务）
+            keep_task_ids = {current_task_id}  # 当前任务ID
+            for i, task in enumerate(completed_tasks[:3]):  # 最近3次完成的任务
+                keep_task_ids.add(task.id)
+            
+            print(f"[{current_task_id}] 临时文件清理：保留任务 {keep_task_ids}")
+            
+            # 3. 获取临时目录下所有文件
+            if not os.path.exists(self.temp_dir):
+                return
+                
+            temp_files = os.listdir(self.temp_dir)
+            files_to_delete = []
+            files_to_keep = []
+            
+            for file_name in temp_files:
+                file_path = os.path.join(self.temp_dir, file_name)
+                if not os.path.isfile(file_path):
+                    continue
+                    
+                # 4. 判断文件是否应该保留
+                should_keep = False
+                
+                # 检查文件是否属于要保留的任务
+                for task_id in keep_task_ids:
+                    if self._is_file_related_to_task(file_name, task_id):
+                        should_keep = True
+                        break
+                
+                # 检查是否是当前正在处理的文件
+                if file_path == current_audio_path:
+                    should_keep = True
+                
+                # 检查是否是最近修改的文件（1小时内）
+                try:
+                    file_stat = os.stat(file_path)
+                    file_age = datetime.now().timestamp() - file_stat.st_mtime
+                    if file_age < 3600:  # 1小时内的文件保留
+                        should_keep = True
+                except:
+                    pass
+                
+                if should_keep:
+                    files_to_keep.append(file_name)
+                else:
+                    files_to_delete.append(file_path)
+            
+            # 5. 删除不需要的文件
+            deleted_count = 0
+            deleted_size = 0
+            
+            for file_path in files_to_delete:
+                try:
+                    file_size = os.path.getsize(file_path)
+                    os.remove(file_path)
+                    deleted_count += 1
+                    deleted_size += file_size
+                    print(f"[{current_task_id}] 已删除临时文件: {os.path.basename(file_path)}")
+                except Exception as e:
+                    print(f"[{current_task_id}] 删除文件失败 {file_path}: {e}")
+            
+            # 6. 记录清理结果
+            if deleted_count > 0:
+                size_mb = deleted_size / (1024 * 1024)
+                print(f"[{current_task_id}] 临时文件清理完成：删除 {deleted_count} 个文件，释放 {size_mb:.2f}MB 空间")
+                print(f"[{current_task_id}] 保留文件数量: {len(files_to_keep)}")
+            else:
+                print(f"[{current_task_id}] 无需清理临时文件")
+                
+        except Exception as e:
+            print(f"[{current_task_id}] 临时文件清理失败: {e}")
+    
+    def _is_file_related_to_task(self, file_name: str, task_id: str) -> bool:
+        """判断文件是否与特定任务相关"""
+        try:
+            # 1. 检查文件名中是否包含任务ID
+            if task_id in file_name:
+                return True
+            
+            # 2. 检查是否是该任务的视频标题相关文件
+            if task_id in self.tasks:
+                task = self.tasks[task_id]
+                if task.video_info and task.video_info.title:
+                    # 清理文件名中的特殊字符进行比较
+                    clean_title = re.sub(r'[^\w\s-]', '', task.video_info.title).strip()
+                    clean_filename = re.sub(r'[^\w\s-]', '', file_name).strip()
+                    
+                    # 检查标题是否在文件名中
+                    if clean_title and clean_title in clean_filename:
+                        return True
+                    
+                    # 检查文件名是否在标题中
+                    if clean_filename and clean_filename in clean_title:
+                        return True
+            
+            # 3. 检查是否是分段音频文件（包含 segment 关键字）
+            if 'segment' in file_name.lower():
+                # 尝试从分段文件名中提取原始文件名
+                base_name = file_name
+                if '_segment_' in file_name:
+                    base_name = file_name.split('_segment_')[0]
+                elif 'segment' in file_name:
+                    base_name = re.sub(r'_?segment_?\d+', '', file_name)
+                
+                # 递归检查基础文件名是否与任务相关
+                return self._is_file_related_to_task(base_name, task_id)
+            
+            return False
+            
+        except Exception as e:
+            print(f"检查文件关联性失败 {file_name} <-> {task_id}: {e}")
+            return False
