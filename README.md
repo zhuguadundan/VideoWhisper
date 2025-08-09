@@ -13,8 +13,8 @@ https://cloud.siliconflow.cn/i/uy4d8V8Y
 
 ## ✨ 功能特性
 
-- 🎬 **视频处理**: 支持YouTube等主流平台，自动下载转录
-- 🤖 **AI分析**: 集成OpenAI/Gemini进行智能摘要和内容分析  
+- 🎬 **视频处理**: 支持YouTube\bilibili等主流平台，自动下载转录
+- 🤖 **AI分析**: 集成硅基流动进行智能摘要和内容分析  
 - 📁 **文件管理**: 完整的任务历史和文件批量管理
 - ⚙️ **在线配置**: Web界面直接配置API密钥
 - 🐳 **容器部署**: Docker一键部署，简单易用
@@ -47,18 +47,13 @@ https://cloud.siliconflow.cn/i/uy4d8V8Y
 
 ### Docker部署（推荐）
 
-```bash
-# 1. 克隆项目
-git clone https://github.com/zhuguadundan/VideoWhisper.git
-cd VideoWhisper
+下载docker-compose.yml文件
+修改端口和存储目录
+cd到compose文件目录执行
+`docker-compose up -d`
 
-# 2. 构建和启动
-./build-docker.sh    # Linux/Mac
-build-docker.bat     # Windows
-
-# 3. 访问应用
-http://localhost:5000
-```
+或者执行docker run命令（仅测试用，无持久化存储重启后数据丢失）
+`docker run -d --name videowhisper -p 5000:5000 zhugua/videowhisper:latest`
 
 ### 传统部署
 
@@ -67,7 +62,7 @@ http://localhost:5000
 pip install -r requirements.txt
 
 # 2. 安装FFmpeg
-# Windows: powershell -ExecutionPolicy Bypass -File install-ffmpeg.ps1
+ Windows: powershell -ExecutionPolicy Bypass -File install-ffmpeg-en.ps1
 # Linux: sudo apt install ffmpeg
 # macOS: brew install ffmpeg
 
@@ -77,7 +72,7 @@ python run.py
 
 ## 📖 使用指南
 
-1. **配置API密钥**: 访问设置页面配置SiliconFlow、OpenAI或Gemini密钥
+1. **配置API密钥**: 访问设置页面配置SiliconFlow密钥
 2. **处理视频**: 输入视频URL，选择AI模型，开始处理
 3. **查看结果**: 自动生成文本转录、智能摘要和分析报告
 4. **文件管理**: 在文件页面管理所有处理结果
