@@ -9,7 +9,7 @@ function getApiConfig() {
         const encrypted = localStorage.getItem(storageKey);
         if (!encrypted) return null;
         
-        return JSON.parse(atob(encrypted));
+        return JSON.parse(decodeURIComponent(escape(atob(encrypted))));
     } catch (error) {
         console.error('读取配置失败:', error);
         return null;
@@ -149,12 +149,14 @@ function initializeEventListeners() {
     
     // 下载按钮
     document.getElementById('downloadTranscript').addEventListener('click', () => downloadFile('transcript'));
+    document.getElementById('importObsidianRoot').addEventListener('click', () => importToObsidian(''));
     document.getElementById('downloadSummary').addEventListener('click', () => downloadFile('summary'));
     
     // 刷新任务列表
     document.getElementById('refreshTasks').addEventListener('click', loadHistoryTasks);
     
 }
+
 
 
 // 防抖函数
@@ -715,6 +717,702 @@ async function downloadFile(fileType) {
         }
     } catch (error) {
         showAlert('下载失败: ' + error.message, 'danger');
+    }
+}
+
+// Obsidian配置验证函数
+function validateObsidianConfig(obsidianConfig) {
+    const errors = [];
+    
+    // 检查必需字段
+    if (!obsidianConfig.vault_name || obsidianConfig.vault_name.trim() === '') {
+        errors.push('缺少仓库名称（必需）');
+    }
+    
+    // 检查仓库名称格式
+    if (obsidianConfig.vault_name) {
+        const vaultName = obsidianConfig.vault_name.trim();
+        // 检查是否包含非法字符
+        const invalidChars = /[<>:"/\\|?*]/;
+        if (invalidChars.test(vaultName)) {
+            errors.push('仓库名称包含非法字符（不能包含 < > : " / \\ | ? *）');
+        }
+        
+        // 检查长度
+        if (vaultName.length > 100) {
+            errors.push('仓库名称过长（建议100字符以内）');
+        }
+    }
+    
+    // 检查文件夹路径格式
+    if (obsidianConfig.default_folder) {
+        const folderPath = obsidianConfig.default_folder.trim();
+        if (folderPath.includes('\\')) {
+            errors.push('文件夹路径应使用 / 而不是 \\');
+        }
+        
+        if (folderPath.startsWith('/') || folderPath.endsWith('/')) {
+            errors.push('文件夹路径不应以 / 开头或结尾');
+        }
+        
+        // 检查非法字符
+        const invalidChars = /[<>:"|?*]/;
+        if (invalidChars.test(folderPath)) {
+            errors.push('文件夹路径包含非法字符');
+        }
+    }
+    
+    // 检查文件名前缀
+    if (obsidianConfig.filename_prefix) {
+        const prefix = obsidianConfig.filename_prefix;
+        const invalidChars = /[<>:"/\\|?*]/;
+        if (invalidChars.test(prefix)) {
+            errors.push('文件名前缀包含非法字符');
+        }
+    }
+    
+    // 检查文件名格式
+    const validFormats = ['title', 'date', 'datetime', 'title_date', 'date_title'];
+    if (obsidianConfig.filename_format && !validFormats.includes(obsidianConfig.filename_format)) {
+        errors.push('无效的文件名格式');
+    }
+    
+    return errors;
+}
+
+// 导入Obsidian
+async function importToObsidian() {
+    if (!currentTaskId) {
+        showAlert('没有可导入的内容', 'warning');
+        return;
+    }
+    
+    // 获取Obsidian配置
+    const config = getApiConfig();
+    const obsidianConfig = config?.obsidian || {};
+    
+    // 使用配置验证函数
+    const configErrors = validateObsidianConfig(obsidianConfig);
+    if (configErrors.length > 0) {
+        showAlert(
+            'Obsidian配置问题：<br>' + configErrors.map(err => `• ${err}`).join('<br>') + 
+            '<br><small>请在API设置页面中检查配置。</small>', 
+            'warning'
+        );
+        return;
+    }
+    
+    const vaultName = obsidianConfig.vault_name;
+    const folderPath = obsidianConfig.default_folder || '';
+    const autoOpen = obsidianConfig.auto_open !== false;
+    
+    try {
+        // 获取任务结果以获取视频信息
+        const resultResponse = await fetch(`/api/result/${currentTaskId}`);
+        const resultData = await resultResponse.json();
+        
+        if (!resultData.success) {
+            showAlert('获取任务信息失败', 'danger');
+            return;
+        }
+        
+        const videoInfo = resultData.data.video_info;
+        const transcript = resultData.data.transcript;
+        
+        // 生成Obsidian格式的Markdown内容
+        const obsidianContent = generateObsidianMarkdown(videoInfo, transcript, obsidianConfig);
+        
+        // 生成文件名
+        const fileName = generateObsidianFileName(videoInfo.title, obsidianConfig);
+        
+        // 构建文件路径
+        let fullPath = fileName;
+        if (folderPath) {
+            fullPath = `${folderPath}/${fileName}`;
+        }
+        
+        if (autoOpen) {
+            // 先进行环境检测（现在不会阻止执行）
+            const envCheck = await checkObsidianEnvironment();
+            console.log('🔍 环境检测结果:', envCheck.reason);
+            
+            // 构建Obsidian URI
+            const uriResult = buildObsidianUri(fullPath, obsidianContent, vaultName);
+            
+            // 显示内容截取提示
+            if (uriResult.wasTruncated) {
+                showAlert(
+                    `⚠️ 内容过长已截取<br><small>原内容${uriResult.originalLength}字符，已压缩至${uriResult.contentLength}字符</small>`, 
+                    'info'
+                );
+            }
+            
+            // 尝试使用优化的URI格式
+            const success = await tryOpenObsidianWithUris(uriResult.uris, fileName, folderPath);
+            
+            if (success) {
+                const folderInfo = folderPath ? `到文件夹 "${folderPath}"` : '到根目录';
+                const truncateInfo = uriResult.wasTruncated ? '（内容已截取）' : '';
+                showAlert(`✅ 成功打开Obsidian创建笔记${folderInfo}${truncateInfo}`, 'success');
+            } else {
+                // URI方式失败，自动回退到下载方式
+                downloadMarkdownFile(obsidianContent, fileName);
+                showAlert(
+                    '⚠️ 无法直接打开Obsidian，已下载Markdown文件<br><small>' +
+                    '可能原因：<br>' +
+                    '1. Obsidian未运行或该仓库未打开<br>' +
+                    '2. Advanced URI插件未安装<br>' +
+                    '3. 仓库名称配置错误<br>' +
+                    '请手动将下载的文件拖拽到Obsidian中</small>', 
+                    'warning'
+                );
+            }
+        } else {
+            // 直接下载文件模式
+            downloadMarkdownFile(obsidianContent, fileName);
+            showAlert(`✅ 已下载笔记文件: ${fileName}`, 'success');
+        }
+        
+    } catch (error) {
+        console.error('Obsidian导入失败:', error);
+        
+        // 智能回退处理
+        try {
+            // 重新获取数据用于回退下载
+            const resultResponse = await fetch(`/api/result/${currentTaskId}`);
+            const resultData = await resultResponse.json();
+            
+            if (resultData.success) {
+                const videoInfo = resultData.data.video_info;
+                const transcript = resultData.data.transcript;
+                const obsidianContent = generateObsidianMarkdown(videoInfo, transcript, obsidianConfig);
+                const fileName = generateObsidianFileName(videoInfo.title, obsidianConfig);
+                
+                downloadMarkdownFile(obsidianContent, fileName);
+                
+                // 根据错误类型提供不同的提示
+                let errorMsg = '⚠️ Obsidian导入失败，已下载笔记文件<br><small>';
+                if (error.message.includes('未安装')) {
+                    errorMsg += '请先安装Obsidian应用程序';
+                } else if (error.message.includes('配置')) {
+                    errorMsg += '请检查Obsidian配置设置';
+                } else if (error.message.includes('仓库')) {
+                    errorMsg += '请检查仓库名称是否正确';
+                } else {
+                    errorMsg += `错误：${error.message}`;
+                }
+                errorMsg += '<br>建议：手动将下载的文件拖拽到Obsidian中</small>';
+                
+                showAlert(errorMsg, 'warning');
+            } else {
+                throw new Error('无法获取任务数据');
+            }
+        } catch (fallbackError) {
+            showAlert(
+                `❌ 导入和下载都失败了<br><small>原因：${error.message}<br>回退错误：${fallbackError.message}</small>`, 
+                'danger'
+            );
+        }
+    }
+}
+
+// 优化的Obsidian URI打开函数
+async function tryOpenObsidianWithUris(uris, fileName, folderPath) {
+    console.log('📋 正在尝试打开Obsidian，共有', uris.length, '种URI格式');
+    
+    // 显示提示信息给用户
+    showAlert('🚀 正在尝试打开Obsidian...请稍候', 'info');
+    
+    for (let i = 0; i < uris.length; i++) {
+        const uri = uris[i];
+        try {
+            console.log(`尝试URI格式 ${i + 1}/${uris.length}:`, uri.substring(0, 80) + '...');
+            
+            const success = await openObsidianUri(uri);
+            if (success) {
+                console.log(`✅ URI格式 ${i + 1} 成功打开Obsidian`);
+                
+                // 给用户一个确认提示
+                setTimeout(() => {
+                    const confirmMsg = `✅ Obsidian URI已发送！\n\n如果Obsidian没有自动打开或创建笔记，可能的原因：\n1. Obsidian应用未运行\n2. 仓库名称不匹配\n3. 浏览器阻止了URI协议\n\n请检查Obsidian是否已打开并创建了笔记："${fileName}"`;
+                    showAlert(confirmMsg, 'success');
+                }, 2000);
+                
+                return true;
+            }
+            
+            console.log(`❌ URI格式 ${i + 1} 失败，尝试下一个格式`);
+            
+            // 短暂等待后尝试下一个格式，给Obsidian足够时间响应
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+        } catch (uriError) {
+            console.warn(`URI格式 ${i + 1} 异常:`, uriError.message);
+            continue;
+        }
+    }
+    
+    console.log('❌ 所有URI格式均失败');
+    
+    // 显示详细的失败说明
+    const troubleshootMsg = `⚠️ 无法自动打开Obsidian\n\n可能的解决方案：\n1. 确保Obsidian已安装并运行\n2. 检查仓库名称是否正确\n3. 在Obsidian中打开对应的仓库\n4. 尝试手动导入下载的文件\n\n已为您下载Markdown文件，请手动拖拽到Obsidian中`;
+    showAlert(troubleshootMsg, 'warning');
+    
+    return false;
+}
+
+// 实用的Obsidian环境检测（跳过不可靠的协议检测）
+async function checkObsidianEnvironment() {
+    try {
+        // 不再依赖不可靠的协议检测，直接返回假设安装状态
+        // 因为用户已经在配置中指定了要使用Obsidian
+        return {
+            isInstalled: true,  // 假设已安装，后续通过实际URI调用来验证
+            hasAdvancedUri: true,  // 假设插件已安装，后续验证
+            reason: 'Obsidian环境检测已跳过，将直接尝试连接'
+        };
+        
+    } catch (error) {
+        return {
+            isInstalled: true,  // 即使检测失败也允许尝试
+            reason: `环境检测跳过，将尝试直接连接`
+        };
+    }
+}
+
+// URI协议测试辅助函数
+async function testUriProtocol(testUri) {
+    return new Promise((resolve) => {
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = testUri;
+        
+        let resolved = false;
+        const timeout = setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                document.body.removeChild(iframe);
+                resolve(false);
+            }
+        }, 3000);
+        
+        iframe.onload = () => {
+            if (!resolved) {
+                resolved = true;
+                clearTimeout(timeout);
+                document.body.removeChild(iframe);
+                resolve(true);
+            }
+        };
+        
+        iframe.onerror = () => {
+            if (!resolved) {
+                resolved = true;
+                clearTimeout(timeout);
+                document.body.removeChild(iframe);
+                resolve(false);
+            }
+        };
+        
+        document.body.appendChild(iframe);
+    });
+}
+
+// 改进的URI打开方法，专门用于Obsidian URI
+async function openObsidianUri(uri) {
+    return new Promise((resolve) => {
+        console.log('🚀 正在尝试打开URI:', uri);
+        
+        // 方法1: 创建隐藏的iframe（推荐方法，避免页面跳转）
+        try {
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.style.position = 'absolute';
+            iframe.style.left = '-9999px';
+            iframe.src = uri;
+            
+            // 添加到DOM
+            document.body.appendChild(iframe);
+            
+            // 设置超时清理
+            setTimeout(() => {
+                try {
+                    document.body.removeChild(iframe);
+                } catch (e) {
+                    // 忽略清理错误
+                }
+            }, 3000);
+            
+            // 给Obsidian响应时间
+            setTimeout(() => {
+                console.log('✅ URI已通过iframe发送');
+                resolve(true);
+            }, 1500);
+            
+        } catch (iframeError) {
+            console.log('❌ iframe方法失败，尝试链接点击方法');
+            
+            // 方法2: 创建链接并模拟点击
+            try {
+                const link = document.createElement('a');
+                link.href = uri;
+                link.target = '_blank'; // 避免当前页面跳转
+                link.style.display = 'none';
+                
+                document.body.appendChild(link);
+                
+                // 创建点击事件
+                const clickEvent = new MouseEvent('click', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                });
+                
+                link.dispatchEvent(clickEvent);
+                
+                // 清理
+                setTimeout(() => {
+                    try {
+                        document.body.removeChild(link);
+                    } catch (e) {
+                        // 忽略清理错误
+                    }
+                }, 1000);
+                
+                setTimeout(() => {
+                    console.log('✅ URI已通过链接点击发送');
+                    resolve(true);
+                }, 1500);
+                
+            } catch (linkError) {
+                console.log('❌ 链接点击失败，尝试最后的window.open方法');
+                
+                // 方法3: 使用window.open（最后的备选方案）
+                try {
+                    const newWindow = window.open(uri, '_blank');
+                    
+                    // 立即关闭窗口（如果可能）
+                    setTimeout(() => {
+                        if (newWindow && !newWindow.closed) {
+                            newWindow.close();
+                        }
+                    }, 500);
+                    
+                    setTimeout(() => {
+                        console.log('✅ URI已通过window.open发送');
+                        resolve(true);
+                    }, 1500);
+                    
+                } catch (windowError) {
+                    console.log('❌ 所有方法都失败:', windowError.message);
+                    resolve(false);
+                }
+            }
+        }
+    });
+}
+
+// 备选方法：使用iframe处理URI
+function tryIframeMethod(uri, resolve) {
+    const iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = uri;
+    
+    let resolved = false;
+    const timeout = setTimeout(() => {
+        if (!resolved) {
+            resolved = true;
+            try {
+                document.body.removeChild(iframe);
+            } catch (e) {}
+            console.log('⏱️ iframe方法超时');
+            resolve(false);
+        }
+    }, 3000);
+    
+    iframe.onload = () => {
+        if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            try {
+                document.body.removeChild(iframe);
+            } catch (e) {}
+            console.log('✅ iframe方法成功');
+            resolve(true);
+        }
+    };
+    
+    iframe.onerror = () => {
+        if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            try {
+                document.body.removeChild(iframe);
+            } catch (e) {}
+            console.log('❌ iframe方法失败');
+            resolve(false);
+        }
+    };
+    
+    document.body.appendChild(iframe);
+}
+// 下载Markdown文件
+function downloadMarkdownFile(content, fileName) {
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+}
+
+// 检查Obsidian是否安装 - 改进版
+async function checkObsidianInstalled() {
+    return new Promise((resolve) => {
+        // 方法1: 尝试通过navigator检测protocol handler
+        const testUri = 'obsidian://';
+        
+        // 检查是否可能安装了Obsidian
+        // 注意：浏览器安全限制，无法100%可靠检测，但可以尝试
+        
+        // 创建一个隐藏的链接用于测试
+        const testLink = document.createElement('a');
+        testLink.href = testUri;
+        testLink.style.display = 'none';
+        document.body.appendChild(testLink);
+        
+        // 尝试点击并监听
+        let detected = false;
+        const timeout = setTimeout(() => {
+            document.body.removeChild(testLink);
+            resolve(detected);
+        }, 500);
+        
+        // 监听blur事件作为可能的响应指标
+        const handleBlur = () => {
+            detected = true;
+            clearTimeout(timeout);
+            setTimeout(() => {
+                document.body.removeChild(testLink);
+                resolve(true);
+            }, 100);
+        };
+        
+        window.addEventListener('blur', handleBlur, { once: true });
+        
+        // 尝试点击
+        try {
+            testLink.click();
+        } catch (e) {
+            // 点击失败，可能未安装
+            clearTimeout(timeout);
+            window.removeEventListener('blur', handleBlur);
+            document.body.removeChild(testLink);
+            resolve(false);
+        }
+    });
+}
+
+// 构建Obsidian URI
+function buildObsidianUri(filePath, content, vaultName) {
+    if (!vaultName) {
+        throw new Error('仓库名称不能为空');
+    }
+    
+    // 优化内容处理：大幅减少长度限制，避免URI过长
+    const maxContentLength = 4000; // 从8000减少到4000，提高兼容性
+    let processedContent = content;
+    
+    // 统一换行符和清理特殊字符
+    processedContent = processedContent
+        .replace(/\r\n/g, '\n')  // 统一换行符
+        .replace(/\r/g, '\n')   // 处理旧Mac格式
+        .trim();                // 去除首尾空白
+    
+    if (processedContent.length > maxContentLength) {
+        // 智能截取：优先保留标题和摘要部分
+        const lines = processedContent.split('\n');
+        const truncatedLines = [];
+        let currentLength = 0;
+        const reserveLength = 300; // 为提示信息预留空间
+        
+        for (const line of lines) {
+            const lineLength = line.length + 1; // +1 for newline
+            if (currentLength + lineLength <= maxContentLength - reserveLength) {
+                truncatedLines.push(line);
+                currentLength += lineLength;
+            } else {
+                break;
+            }
+        }
+        
+        processedContent = truncatedLines.join('\n') + 
+            '\n\n---\n\n⚠️ **内容已截取**\n\n由于内容较长，仅显示前' + truncatedLines.length + '行。\n\n完整内容请：\n1. 手动下载完整文件\n2. 或在Obsidian中手动添加剩余内容';
+    }
+    
+    // 改进编码方式，处理特殊字符
+    const encodedVaultName = encodeURIComponent(vaultName);
+    const encodedFilePath = encodeURIComponent(filePath);
+    const encodedContent = encodeURIComponent(processedContent)
+        .replace(/'/g, '%27')   // 单引号
+        .replace(/"/g, '%22')   // 双引号
+        .replace(/\(/g, '%28')  // 左括号
+        .replace(/\)/g, '%29'); // 右括号
+    
+    // 根据Obsidian官方文档构建正确的URI格式
+    
+    // 提取文件名（去掉路径和.md扩展名）
+    const fileName = filePath.split('/').pop().replace('.md', '');
+    const folderPath = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '';
+    
+    // 格式1: Obsidian官方标准格式 - 创建新笔记
+    // obsidian://new?vault=VaultName&name=FileName&content=Content
+    const standardUri = `obsidian://new?vault=${encodedVaultName}&name=${encodeURIComponent(fileName)}&content=${encodedContent}`;
+    
+    // 格式2: 带路径的创建格式（如果有文件夹）
+    let pathBasedUri = standardUri;
+    if (folderPath) {
+        pathBasedUri = `obsidian://new?vault=${encodedVaultName}&name=${encodeURIComponent(fileName)}&path=${encodeURIComponent(folderPath)}&content=${encodedContent}`;
+    }
+    
+    // 格式3: 使用file参数的格式
+    const fileBasedUri = `obsidian://new?vault=${encodedVaultName}&file=${encodedFilePath}&content=${encodedContent}`;
+    
+    // 格式4: Advanced URI格式 (需要插件支持)
+    const advancedUri = `obsidian://advanced-uri?vault=${encodedVaultName}&file=${encodedFilePath}&data=${encodedContent}&mode=new`;
+    
+    // 调试信息：显示生成的URI（仅显示前部分，避免泄露内容）
+    console.log('🔗 生成的Obsidian URI格式:');
+    console.log('1. 标准格式:', standardUri.substring(0, 150) + '...');
+    console.log('2. 带路径格式:', pathBasedUri.substring(0, 150) + '...');
+    console.log('3. 文件格式:', fileBasedUri.substring(0, 150) + '...');
+    console.log('4. Advanced URI:', advancedUri.substring(0, 150) + '...');
+    console.log('📄 文件路径:', filePath);
+    console.log('📝 内容长度:', processedContent.length, '字符');
+    
+    // 返回修正后的URI列表，按成功率排序
+    return {
+        uris: [standardUri, pathBasedUri, fileBasedUri, advancedUri],
+        contentLength: processedContent.length,
+        originalLength: content.length,
+        wasTruncated: content.length > maxContentLength
+    };
+}
+
+// 生成Obsidian格式的Markdown
+function generateObsidianMarkdown(videoInfo, transcript, obsidianConfig) {
+    const title = videoInfo.title || '未命名视频';
+    const uploader = videoInfo.uploader || '未知UP主';
+    const url = videoInfo.url || '';
+    const duration = videoInfo.duration ? formatDuration(videoInfo.duration) : '未知时长';
+    
+    const date = new Date().toISOString().split('T')[0];
+    const tags = generateTags(title, transcript);
+    const tagsString = tags.join(', ');
+    
+    // 支持自定义YAML前置信息
+    const yamlFrontMatter = `---
+title: "${title}"
+author: "${uploader}"
+source: "${url}"
+duration: "${duration}"
+created: "${date}"
+tags: [${tagsString}]
+platform: "VideoWhisper"
+status: "processed"
+---`;
+    
+    return `${yamlFrontMatter}
+
+# ${title}
+
+## 元信息
+- **UP主:** ${uploader}
+- **视频链接:** [点击观看](${url})
+- **时长:** ${duration}
+- **创建时间:** ${date}
+- **处理时间:** ${new Date().toLocaleString('zh-CN')}
+
+## 标签
+${tags.map(tag => `- ${tag}`).join('\n')}
+
+---
+
+## 逐字稿
+
+${transcript}
+
+---
+
+*此笔记由 [VideoWhisper](https://github.com/zhugua/videowhisper) 自动生成*`;
+}
+
+// 生成Obsidian文件名
+function generateObsidianFileName(title, obsidianConfig) {
+    const format = obsidianConfig?.filename_format || 'title';
+    const prefix = obsidianConfig?.filename_prefix || '';
+    
+    let fileName = '';
+    const cleanTitle = (title || '视频笔记').replace(/[^\u4e00-\u9fa5\w\s\-\|\(\)\[\]【】（）]/g, '').slice(0, 30) || '视频笔记';
+    
+    switch (format) {
+        case 'date_title':
+            const date = new Date().toISOString().split('T')[0];
+            fileName = `${date}_${cleanTitle}`;
+            break;
+        case 'prefix_title':
+            if (prefix) {
+                fileName = `${prefix}_${cleanTitle}`;
+            } else {
+                fileName = cleanTitle;
+            }
+            break;
+        case 'title':
+        default:
+            fileName = cleanTitle;
+            break;
+    }
+    
+    return `${fileName}.md`;
+}
+
+// 生成标签
+function generateTags(title, transcript) {
+    const text = (title + ' ' + transcript).toLowerCase();
+    const tags = new Set();
+    
+    // 基础标签
+    tags.add('video');
+    tags.add('transcript');
+    tags.add('autogenerated');
+    
+    // 根据内容推断标签
+    if (text.includes('教程') || text.includes('教学')) tags.add('教程');
+    if (text.includes('技术') || text.includes('编程')) tags.add('技术');
+    if (text.includes('科学') || text.includes('研究')) tags.add('科学');
+    if (text.includes('历史')) tags.add('历史');
+    if (text.includes('新闻') || text.includes('时事')) tags.add('新闻');
+    if (text.includes('娱乐') || text.includes('游戏')) tags.add('娱乐');
+    if (text.includes('音乐') || text.includes('歌曲')) tags.add('音乐');
+    if (text.includes('电影') || text.includes('影视')) tags.add('影视');
+    
+    return Array.from(tags).slice(0, 10); // 最多10个标签
+}
+
+// 格式化时长
+function formatDuration(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    
+    if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    } else {
+        return `${minutes}:${secs.toString().padStart(2, '0')}`;
     }
 }
 

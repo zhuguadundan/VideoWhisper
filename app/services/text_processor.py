@@ -10,9 +10,14 @@ except ImportError:
 
 from typing import Dict, Any, Optional, List
 from app.config.settings import Config
+import re
 
 class TextProcessor:
     def __init__(self, openai_config=None, gemini_config=None, siliconflow_config=None):
+        # 常量定义
+        self.MAX_TOKENS_PER_REQUEST = 32000  # 大幅提高token限制以支持长视频
+        self.MAX_CHARS_PER_SEGMENT = 48000  # 大幅增加每段最大字符数以减少分段
+        self.TOKEN_ESTIMATE_RATIO = 1.5  # 中文字符到token的估算比例
         # 初始化配置
         if openai_config:
             self.openai_config = openai_config
@@ -169,14 +174,136 @@ class TextProcessor:
         else:
             return available[0]
     
+    def estimate_tokens(self, text: str) -> int:
+        """估算文本的token数量"""
+        if not text:
+            return 0
+        # 中文字符通常1字符=1.5-2 tokens，这里取保守估算
+        return int(len(text) * self.TOKEN_ESTIMATE_RATIO)
+    
+    def split_text_intelligently(self, text: str, max_chars: int = None) -> List[str]:
+        """智能分割长文本"""
+        if not max_chars:
+            max_chars = self.MAX_CHARS_PER_SEGMENT
+            
+        if len(text) <= max_chars:
+            return [text]
+        
+        # 尝试按段落分割
+        paragraphs = text.split('\n\n')
+        segments = []
+        current_segment = ""
+        
+        for paragraph in paragraphs:
+            # 如果段落本身超过最大长度，需要进一步分割
+            if len(paragraph) > max_chars:
+                # 先添加当前段落（如果有）
+                if current_segment.strip():
+                    segments.append(current_segment.strip())
+                    current_segment = ""
+                
+                # 按句子分割长段落
+                sentences = re.split(r'[。！？.!?]', paragraph)
+                sub_segment = ""
+                
+                for sentence in sentences:
+                    if len(sub_segment + sentence) <= max_chars - 50:  # 留50字符缓冲
+                        sub_segment += sentence + "。"
+                    else:
+                        if sub_segment.strip():
+                            segments.append(sub_segment.strip())
+                        sub_segment = sentence + "。"
+                
+                if sub_segment.strip():
+                    segments.append(sub_segment.strip())
+                    
+            else:
+                # 检查添加新段落是否会超过限制
+                if len(current_segment + paragraph + "\n\n") <= max_chars:
+                    current_segment += paragraph + "\n\n"
+                else:
+                    # 先保存当前段落
+                    if current_segment.strip():
+                        segments.append(current_segment.strip())
+                    current_segment = paragraph + "\n\n"
+        
+        # 添加最后一段
+        if current_segment.strip():
+            segments.append(current_segment.strip())
+        
+        # 再次检查每个分段，确保都不超过限制
+        final_segments = []
+        for segment in segments:
+            if len(segment) <= max_chars:
+                final_segments.append(segment)
+            else:
+                # 如果还有超长的段落，强制分割
+                chunks = [segment[i:i+max_chars] for i in range(0, len(segment), max_chars)]
+                final_segments.extend(chunks)
+        
+        print(f"智能分段：原始文本 {len(text)} 字符，分割为 {len(final_segments)} 个段落")
+        for i, segment in enumerate(final_segments):
+            print(f"段落 {i+1}: {len(segment)} 字符")
+        
+        return final_segments
+    
+    def process_long_text(self, text: str, prompt_template: str, provider: str, 
+                         max_chars_per_segment: int = None) -> str:
+        """处理长文本的核心方法"""
+        segments = self.split_text_intelligently(text, max_chars_per_segment)
+        results = []
+        
+        for i, segment in enumerate(segments):
+            print(f"处理长文本第 {i+1}/{len(segments)} 段 ({len(segment)} 字符)")
+            
+            try:
+                if provider.lower() == 'siliconflow':
+                    # 动态调整token限制
+                    estimated_tokens = self.estimate_tokens(prompt_template + segment)
+                    dynamic_max_tokens = min(max(estimated_tokens + 2000, 8000), self.MAX_TOKENS_PER_REQUEST)
+                    
+                    result = self.process_with_siliconflow(
+                        segment, prompt_template, max_tokens=dynamic_max_tokens
+                    )
+                elif provider.lower() == 'openai' or provider.lower() == 'custom':
+                    # 动态调整token限制
+                    estimated_tokens = self.estimate_tokens(prompt_template + segment)
+                    dynamic_max_tokens = min(max(estimated_tokens + 2000, 8000), self.MAX_TOKENS_PER_REQUEST)
+                    
+                    result = self.process_with_openai(
+                        segment, prompt_template, max_tokens=dynamic_max_tokens
+                    )
+                elif provider.lower() == 'gemini':
+                    result = self.process_with_gemini(segment, prompt_template)
+                else:
+                    raise ValueError(f"不支持的服务提供商: {provider}")
+                
+                results.append(result)
+                print(f"第 {i+1} 段处理成功，结果长度: {len(result)} 字符")
+                
+            except Exception as e:
+                print(f"第 {i+1} 段处理失败: {e}")
+                # 如果某段处理失败，使用原始文本
+                results.append(f"[段落处理失败，使用原始文本]\n\n{segment}")
+        
+        # 合并所有结果
+        final_result = "\n\n".join(results)
+        print(f"长文本处理完成：共 {len(segments)} 段，总结果长度: {len(final_result)} 字符")
+        return final_result
+    
     def process_with_siliconflow(self, text: str, prompt_template: str,
-                               model: Optional[str] = None) -> str:
+                               model: Optional[str] = None, max_tokens: Optional[int] = None) -> str:
         """使用SiliconFlow处理文本"""
         if not self.siliconflow_client:
             raise ValueError("SiliconFlow API密钥未配置")
         
         if not model:
             model = self.siliconflow_config.get('model', 'Qwen/Qwen3-Coder-30B-A3B-Instruct')
+        
+        # 动态设置token限制
+        if not max_tokens:
+            estimated_tokens = self.estimate_tokens(prompt_template + text)
+            max_tokens = min(max(estimated_tokens + 2000, 8000), self.MAX_TOKENS_PER_REQUEST)
         
         try:
             response = self.siliconflow_client.chat.completions.create(
@@ -186,7 +313,7 @@ class TextProcessor:
                     {"role": "user", "content": text}
                 ],
                 temperature=0.3,
-                max_tokens=4000
+                max_tokens=max_tokens
             )
             
             return response.choices[0].message.content.strip()
@@ -195,13 +322,18 @@ class TextProcessor:
             raise Exception(f"SiliconFlow处理失败: {e}")
     
     def process_with_openai(self, text: str, prompt_template: str, 
-                          model: Optional[str] = None) -> str:
+                          model: Optional[str] = None, max_tokens: Optional[int] = None) -> str:
         """使用OpenAI处理文本"""
         if not self.openai_client:
             raise ValueError("OpenAI API密钥未配置")
         
         if not model:
             model = self.openai_config.get('model', 'gpt-4')
+        
+        # 动态设置token限制
+        if not max_tokens:
+            estimated_tokens = self.estimate_tokens(prompt_template + text)
+            max_tokens = min(max(estimated_tokens + 2000, 8000), self.MAX_TOKENS_PER_REQUEST)
         
         try:
             response = self.openai_client.chat.completions.create(
@@ -211,7 +343,7 @@ class TextProcessor:
                     {"role": "user", "content": text}
                 ],
                 temperature=0.3,
-                max_tokens=4000
+                max_tokens=max_tokens
             )
             
             return response.choices[0].message.content.strip()
@@ -247,14 +379,23 @@ class TextProcessor:
 
 请直接输出整理后的逐字稿，不要添加额外说明。"""
         
-        if provider.lower() == 'siliconflow':
-            return self.process_with_siliconflow(raw_text, prompt)
-        elif provider.lower() == 'openai' or provider.lower() == 'custom':
-            return self.process_with_openai(raw_text, prompt)
-        elif provider.lower() == 'gemini':
-            return self.process_with_gemini(raw_text, prompt)
+        # 检查文本长度，决定是否使用长文本处理
+        estimated_tokens = self.estimate_tokens(raw_text)
+        
+        if estimated_tokens > self.MAX_TOKENS_PER_REQUEST - 1000:  # 留1000 tokens缓冲
+            print(f"文本过长（估算 {estimated_tokens} tokens），使用智能分段处理")
+            return self.process_long_text(raw_text, prompt, provider)
         else:
-            raise ValueError(f"不支持的服务提供商: {provider}")
+            print(f"文本长度适中（估算 {estimated_tokens} tokens），直接处理")
+            # 短文本直接处理
+            if provider.lower() == 'siliconflow':
+                return self.process_with_siliconflow(raw_text, prompt)
+            elif provider.lower() == 'openai' or provider.lower() == 'custom':
+                return self.process_with_openai(raw_text, prompt)
+            elif provider.lower() == 'gemini':
+                return self.process_with_gemini(raw_text, prompt)
+            else:
+                raise ValueError(f"不支持的服务提供商: {provider}")
     
     def generate_summary(self, transcript: str, provider: str = None) -> Dict[str, str]:
         """生成总结报告"""

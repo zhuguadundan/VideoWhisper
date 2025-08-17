@@ -34,128 +34,102 @@ class SpeechToText:
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"音频文件不存在: {audio_path}")
         
-        headers = {
-            'Authorization': f'Bearer {self.api_key}',
-        }
+        max_retries = 3
         
-        # 准备文件上传
-        with open(audio_path, 'rb') as audio_file:
-            files = {
-                'file': ('audio.wav', audio_file, 'audio/wav')
-            }
-            
-            data = {
-                'model': self.model,
-                'response_format': 'verbose_json',  # 获取详细结果包含时间戳
-                'language': language if language != 'auto' else None
-            }
-            
+        for retry in range(max_retries):
             try:
-                response = requests.post(
-                    f"{self.base_url}/audio/transcriptions",
-                    headers=headers,
-                    files=files,
-                    data=data,
-                    timeout=300  # 5分钟超时
-                )
-                
-                response.raise_for_status()
-                result = response.json()
-                
-                return {
-                    'text': result.get('text', ''),
-                    'segments': result.get('segments', []),
-                    'language': result.get('language', 'unknown'),
-                    'duration': result.get('duration', 0)
+                headers = {
+                    'Authorization': f'Bearer {self.api_key}',
                 }
                 
+                # 准备文件上传
+                with open(audio_path, 'rb') as audio_file:
+                    files = {
+                        'file': ('audio.wav', audio_file, 'audio/wav')
+                    }
+                    
+                    data = {
+                        'model': self.model
+                    }
+                    
+                    response = requests.post(
+                        f"{self.base_url}/audio/transcriptions",
+                        headers=headers,
+                        files=files,
+                        data=data,
+                        timeout=300  # 5分钟超时
+                    )
+                    
+                    response.raise_for_status()
+                    result = response.json()
+                    
+                    # 根据硅基流动API实际返回格式解析
+                    text = result.get('text', '')
+                    if not text and isinstance(result, dict):
+                        # 如果text字段为空，尝试其他可能的字段名
+                        text = result.get('transcription', '') or result.get('content', '')
+                    
+                    # 检查结果是否有效
+                    if not text or len(text.strip()) == 0:
+                        if retry < max_retries - 1:
+                            print(f"音频文件返回空文本，第 {retry+1} 次重试...")
+                            time.sleep(2)  # 重试前等待
+                            continue
+                        else:
+                            print(f"音频文件重试{max_retries}次后仍返回空文本")
+                            raise Exception("语音转文字失败：API返回空文本")
+                    
+                    # 检查最小文本长度（避免只返回标点符号或单个字符）
+                    if len(text.strip()) < 3:
+                        if retry < max_retries - 1:
+                            print(f"音频文件返回文本过短（{len(text.strip())}字符），第 {retry+1} 次重试...")
+                            time.sleep(2)  # 重试前等待
+                            continue
+                        else:
+                            print(f"音频文件重试{max_retries}次后仍返回过短文本")
+                            raise Exception(f"语音转文字失败：API返回文本过短（{len(text.strip())}字符）")
+                    
+                    # 硅基流动API不返回详细的时间戳信息，所以segments为空
+                    return {
+                        'text': text,
+                        'segments': [],  # API不支持时间戳
+                        'language': 'unknown',  # API不返回语言信息
+                        'duration': 0  # API不返回时长信息
+                    }
+                    
             except requests.exceptions.RequestException as e:
-                raise Exception(f"语音转文字请求失败: {e}")
-            except json.JSONDecodeError:
-                raise Exception("API返回格式错误")
-    
-    def transcribe_audio_segments(self, segments: List[Dict]) -> List[Dict[str, Any]]:
-        """转录音频片段列表"""
-        results = []
+                if retry < max_retries - 1:
+                    print(f"API请求失败: {e}，第 {retry+1} 次重试...")
+                    time.sleep(2)  # 重试前等待
+                else:
+                    raise Exception(f"语音转文字请求失败: {e}")
+            except json.JSONDecodeError as e:
+                if retry < max_retries - 1:
+                    print(f"API返回格式错误，第 {retry+1} 次重试...")
+                    time.sleep(2)  # 重试前等待
+                else:
+                    raise Exception("API返回格式错误")
         
-        for i, segment in enumerate(segments):
-            print(f"正在处理片段 {i+1}/{len(segments)}: {segment['path']}")
-            
-            try:
-                result = self.transcribe_audio(segment['path'])
-                
-                # 调整时间戳 - 加上该片段的起始时间
-                adjusted_segments = []
-                if result.get('segments'):
-                    for seg in result['segments']:
-                        adjusted_seg = seg.copy()
-                        # 关键修复：正确调整时间戳
-                        adjusted_seg['start'] = seg.get('start', 0) + segment['start_time']
-                        adjusted_seg['end'] = seg.get('end', 0) + segment['start_time']
-                        adjusted_segments.append(adjusted_seg)
-                
-                segment_result = {
-                    'segment_index': segment['index'],
-                    'text': result.get('text', '').strip(),
-                    'segments': adjusted_segments,
-                    'start_time': segment['start_time'],
-                    'end_time': segment['end_time'],
-                    'language': result.get('language', 'unknown')
-                }
-                
-                results.append(segment_result)
-                print(f"片段 {i+1} 处理成功: 文本长度={len(result.get('text', ''))}, 子片段数={len(adjusted_segments)}")
-                
-                # 添加延迟避免API限制
-                time.sleep(1)
-                
-            except Exception as e:
-                print(f"片段 {i+1} 处理失败: {e}")
-                results.append({
-                    'segment_index': segment['index'],
-                    'text': '',
-                    'segments': [],
-                    'start_time': segment['start_time'],
-                    'end_time': segment['end_time'],
-                    'error': str(e)
-                })
-        
-        return results
+        # 这里不会执行到，只是为了语法完整性
+        raise Exception("转录失败")
     
+        
     def format_transcript(self, transcription_results: List[Dict[str, Any]]) -> str:
         """格式化转录结果为逐字稿"""
         transcript = ""
         
         for result in transcription_results:
             if result.get('error'):
-                transcript += f"\n[片段 {result['segment_index']+1} 处理失败: {result['error']}]\n"
+                transcript += f"\n[片段 {result['segment_index']+1} 处理失败: {result['error']}\n"
                 continue
             
-            if result.get('segments'):
-                for segment in result['segments']:
-                    start_time = self._format_timestamp(segment.get('start', 0))
-                    end_time = self._format_timestamp(segment.get('end', 0))
-                    text = segment.get('text', '').strip()
-                    
-                    if text:
-                        transcript += f"[{start_time} - {end_time}] {text}\n"
-            else:
-                # 如果没有详细片段，使用整体文本
-                start_time = self._format_timestamp(result['start_time'])
-                end_time = self._format_timestamp(result['end_time'])
-                text = result.get('text', '').strip()
-                
-                if text:
-                    transcript += f"[{start_time} - {end_time}] {text}\n"
+            # 直接添加文本，不包含时间戳
+            text = result.get('text', '').strip()
+            if text:
+                transcript += text + "\n\n"
         
         return transcript
     
-    def _format_timestamp(self, seconds: float) -> str:
-        """格式化时间戳为 HH:MM:SS 格式"""
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        seconds = int(seconds % 60)
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
     
     def get_full_text(self, transcription_results: List[Dict[str, Any]]) -> str:
         """获取完整文本（无时间戳）"""

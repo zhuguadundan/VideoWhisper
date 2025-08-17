@@ -185,7 +185,7 @@ def download_file(task_id, file_type):
         task_dir = os.path.join(output_dir, task_id)
         
         file_mapping = {
-            'transcript': 'transcript.txt',
+            'transcript': 'transcript.md',
             'summary': 'summary.md',
             'data': 'data.json'
         }
@@ -250,9 +250,9 @@ def download_file(task_id, file_type):
             
             # 根据文件类型生成简短名称
             if file_type == 'transcript':
-                return f"{short_title}_逐字稿.{extension}"
+                return f"{short_title}_逐字稿.md"
             elif file_type == 'summary':
-                return f"{short_title}_总结报告.{extension}"
+                return f"{short_title}_总结报告.md"
             elif file_type == 'data':
                 return f"{short_title}_完整数据.{extension}"
             else:

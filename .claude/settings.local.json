@@ -56,7 +56,13 @@
       "Bash(cmd /c:*)",
       "Bash(cmd /c:*)",
       "Bash(docker rm:*)",
-      "Bash(docker system info:*)"
+      "Bash(docker system info:*)",
+      "Bash(node -c temp_fix_correct.js)",
+      "WebSearch",
+      "WebFetch(domain:publish.obsidian.md)",
+      "Bash(node -c \"C:\\videowhisper\\VideoWhisper\\web\\static\\js\\app.js\")",
+      "Bash(node -c \"C:\\videowhisper\\VideoWhisper\\web\\static\\js\\settings.js\")",
+      "WebFetch(domain:help.obsidian.md)"
     ],
     "deny": []
   }

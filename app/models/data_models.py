@@ -16,16 +16,12 @@ class VideoInfo:
 class AudioSegment:
     """音频片段"""
     path: str
-    start_time: float
-    end_time: float
     index: int
 
 @dataclass
 class TranscriptionSegment:
     """转录片段"""
     text: str
-    start_time: float
-    end_time: float
     confidence: float = 0.0
 
 @dataclass
@@ -41,8 +37,6 @@ class TranscriptionResult:
             'segments': [
                 {
                     'text': seg.text,
-                    'start_time': seg.start_time,
-                    'end_time': seg.end_time,
                     'confidence': seg.confidence
                 } for seg in self.segments
             ],

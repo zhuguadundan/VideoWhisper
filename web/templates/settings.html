@@ -270,6 +270,79 @@
                         </div>
                     </div>
 
+                    <!-- Obsidian 集成配置 -->
+                    <div class="api-section">
+                        <h5 class="mb-3">
+                            <i class="fas fa-book me-2"></i>Obsidian 集成配置
+                            <span class="status-indicator status-untested" id="obsidian-status"></span>
+                            <small class="text-muted" id="obsidian-status-text">可选配置</small>
+                        </h5>
+                        
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>说明：</strong>配置Obsidian集成后，可以直接将处理结果导入到Obsidian中。支持自定义保存路径和文件名格式。
+                        </div>
+                        
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">Obsidian仓库名称 <span class="text-danger">*</span></label>
+                                <input type="text" class="form-control" id="obsidian_vault_name" 
+                                       placeholder="例如：MyVault 或 知识库" required>
+                                <div class="form-text text-muted">
+                                    <i class="fas fa-vault me-1"></i>
+                                    输入您的Obsidian仓库名称（必需），通常与文件夹名称相同
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">默认保存文件夹</label>
+                                <input type="text" class="form-control" id="obsidian_default_folder" 
+                                       placeholder="例如：Videos/学习笔记 或 学习笔记（留空保存到根目录）">
+                                <div class="form-text text-muted">
+                                    <i class="fas fa-folder me-1"></i>
+                                    输入Obsidian中的文件夹路径，支持多级文件夹（用/分隔）
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">文件名前缀</label>
+                                <input type="text" class="form-control" id="obsidian_filename_prefix" 
+                                       placeholder="例如：视频笔记_（留空使用视频标题）">
+                                <div class="form-text text-muted">
+                                    可以为文件名添加前缀，便于分类管理
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">文件名格式</label>
+                                <select class="form-select" id="obsidian_filename_format">
+                                    <option value="title">使用视频标题</option>
+                                    <option value="date_title">日期+标题</option>
+                                    <option value="prefix_title">前缀+标题</option>
+                                </select>
+                                <div class="form-text text-muted">
+                                    选择文件名的生成格式
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="obsidian_auto_open" checked>
+                                    <label class="form-check-label" for="obsidian_auto_open">
+                                        自动打开Obsidian创建笔记
+                                    </label>
+                                    <div class="form-text text-muted">
+                                        取消勾选将直接下载Markdown文件而不打开Obsidian
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <button type="button" class="btn btn-outline-info me-2" onclick="showObsidianGuide()">
+                                    <i class="fas fa-question-circle me-2"></i>使用指南
+                                </button>
+                                <button type="button" class="btn btn-outline-success" onclick="testObsidianConfig()">
+                                    <i class="fas fa-check-circle me-2"></i>测试配置
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- 操作按钮 -->
                     <div class="text-center mt-4">
                         <button type="submit" class="btn btn-primary btn-lg me-3">

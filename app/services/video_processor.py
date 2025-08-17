@@ -112,7 +112,7 @@ class VideoProcessor:
                 uploader=video_info_dict['uploader']
             )
             task.progress = 10
-            task.progress_detail = f"视频时长: {self._format_timestamp(video_info_dict['duration'])}"
+            task.progress_detail = f"视频时长: {self._format_duration(video_info_dict['duration'])}"
             task.estimated_time = int(video_info_dict['duration'] * 0.3)  # 粗略估计处理时间
             
             # 2. 下载音频（简化版，仅音频下载）
@@ -144,6 +144,10 @@ class VideoProcessor:
                 task.progress_stage = "语音转文字"
                 transcription_results = []
                 
+                # 增加连续失败检测
+                consecutive_failures = 0
+                max_consecutive_failures = 3  # 最多允许连续失败3个片段
+                
                 for i, segment in enumerate(segments):
                     task.processed_segments = i + 1
                     task.progress_detail = f"正在处理第 {i+1}/{len(segments)} 个音频片段..."
@@ -152,21 +156,56 @@ class VideoProcessor:
                     self.save_tasks_to_disk()
                     
                     try:
-                        segment_result = self.speech_to_text.transcribe_audio_segments([segment])
-                        if segment_result:
-                            transcription_results.extend(segment_result)
-                        print(f"[{task_id}] 片段 {i+1} 处理成功")
+                        # 直接调用transcribe_audio处理单个片段
+                        segment_result = self.speech_to_text.transcribe_audio(segment['path'])
+                        
+                        # 验证结果文本
+                        text = segment_result.get('text', '').strip()
+                        if not text or len(text) < 3:
+                            raise Exception(f"转录文本无效: 长度={len(text)}")
+                        
+                        # 构建标准化的结果格式
+                        transcription_results.append({
+                            'segment_index': segment['index'],
+                            'text': text,
+                            'segments': segment_result.get('segments', []),
+                            'start_time': segment['start_time'],
+                            'end_time': segment['end_time'],
+                            'language': segment_result.get('language', 'unknown')
+                        })
+                        print(f"[{task_id}] 片段 {i+1} 处理成功: 文本长度={len(text)}")
+                        
+                        # 重置连续失败计数器
+                        consecutive_failures = 0
+                        
+                        # 成功后添加延迟避免API限制
+                        time.sleep(1)
+                        
                     except Exception as e:
-                        print(f"[{task_id}] 片段 {i+1} 处理失败: {e}")
+                        consecutive_failures += 1
+                        print(f"[{task_id}] 片段 {i+1} 处理失败: {e} (连续失败次数: {consecutive_failures})")
+                        
                         # 添加空的结果占位符，保持顺序
                         transcription_results.append({
-                            'segment_index': i,
+                            'segment_index': segment['index'],
                             'text': '',
                             'segments': [],
                             'start_time': segment['start_time'],
                             'end_time': segment['end_time'],
                             'error': str(e)
                         })
+                        
+                        # 检查连续失败次数
+                        if consecutive_failures >= max_consecutive_failures:
+                            print(f"[{task_id}] 连续失败次数达到上限 ({max_consecutive_failures})，停止处理")
+                            # 计算当前片段索引
+                            remaining_segments = len(segments) - (i + 1)
+                            if remaining_segments > 0:
+                                print(f"[{task_id}] 跳过剩余 {remaining_segments} 个片段")
+                            break
+                        
+                        # 失败后也添加延迟，避免频繁调用API
+                        time.sleep(2)
                 
                 task.progress = 60
                 
@@ -176,30 +215,48 @@ class VideoProcessor:
                 all_segments = []
                 full_text = ""
                 successful_segments = 0
+                failed_segments = 0
+                processed_segments_count = len(transcription_results)  # 实际处理的片段数（可能因连续失败而提前终止）
                 
                 for result in transcription_results:
                     if not result.get('error'):
-                        successful_segments += 1
                         text = result.get('text', '').strip()
-                        if text:
+                        if text and len(text) >= 3:  # 只统计有效文本
+                            successful_segments += 1
                             full_text += text + " "
+                        else:
+                            print(f"[{task_id}] 警告: 片段 {result.get('segment_index', '未知')} 返回无效文本")
                         
                         # 处理详细片段信息
                         for seg in result.get('segments', []):
                             all_segments.append(TranscriptionSegment(
                                 text=seg.get('text', ''),
-                                start_time=seg.get('start', 0),
-                                end_time=seg.get('end', 0),
                                 confidence=seg.get('confidence', 0.0)
                             ))
                     else:
-                        print(f"[{task_id}] 跳过失败片段 {result.get('segment_index', '未知')}: {result.get('error', '未知错误')}")
+                        failed_segments += 1
+                        print(f"[{task_id}] 片段 {result.get('segment_index', '未知')} 处理失败: {result.get('error', '未知错误')}")
                 
-                print(f"[{task_id}] 成功处理 {successful_segments}/{len(segments)} 个片段")
+                print(f"[{task_id}] 处理统计: 成功 {successful_segments}/{processed_segments_count} 个片段, 失败 {failed_segments} 个片段")
+                
+                # 如果有剩余片段未处理（因连续失败而提前终止），给出提示
+                if processed_segments_count < len(segments):
+                    remaining_segments = len(segments) - processed_segments_count
+                    print(f"[{task_id}] 跳过未处理片段: {remaining_segments} 个 (因连续失败而提前终止)")
                 
                 # 如果没有成功的片段，抛出异常
                 if successful_segments == 0:
-                    raise Exception("所有音频片段处理失败")
+                    raise Exception(f"所有音频片段处理失败，共处理 {processed_segments_count} 个片段")
+                
+                # 计算实际处理的成功率（基于实际处理的片段数）
+                success_rate = successful_segments / processed_segments_count if processed_segments_count > 0 else 0
+                if success_rate < 0.8:
+                    print(f"[{task_id}] 警告: 片段成功率较低 ({success_rate:.1%}), 可能会影响转录完整性")
+                
+                # 如果整体成功率过低（考虑未处理的片段），给出额外警告
+                overall_success_rate = successful_segments / len(segments)
+                if overall_success_rate < 0.5:
+                    print(f"[{task_id}] 严重警告: 整体成功率过低 ({overall_success_rate:.1%}), 建议检查网络连接和API配置")
                 
                 # 分段文件清理由智能清理系统统一管理，这里不再立即删除
                 print(f"[{task_id}] 分段音频文件将由智能清理系统管理")
@@ -217,17 +274,54 @@ class VideoProcessor:
                 task.total_segments = 1
                 task.processed_segments = 1
                 self.save_tasks_to_disk()
-                transcription_result = self.speech_to_text.transcribe_audio(audio_path)
-                full_text = transcription_result['text']
+                
+                # 使用重试机制处理短音频（与长音频片段处理保持一致）
+                max_retries = 3
+                transcription_result = None
+                
+                for retry in range(max_retries):
+                    try:
+                        transcription_result = self.speech_to_text.transcribe_audio(audio_path)
+                        
+                        # 验证结果文本（与长音频处理逻辑一致）
+                        text = transcription_result.get('text', '').strip()
+                        if not text or len(text) < 3:
+                            if retry < max_retries - 1:
+                                print(f"[{task_id}] 短音频返回无效文本（长度={len(text)}），第 {retry+1} 次重试...")
+                                time.sleep(2)
+                                continue
+                            else:
+                                raise Exception(f"短音频处理重试{max_retries}次后仍返回无效文本")
+                        
+                        print(f"[{task_id}] 短音频处理成功: 文本长度={len(text)}")
+                        break
+                        
+                    except Exception as e:
+                        if retry < max_retries - 1:
+                            print(f"[{task_id}] 短音频处理失败: {e}，第 {retry+1} 次重试...")
+                            time.sleep(2)
+                        else:
+                            raise Exception(f"短音频处理重试{max_retries}次后仍然失败: {e}")
+                
+                if not transcription_result or not transcription_result.get('text'):
+                    raise Exception("短音频处理失败：无法获取转录文本")
+                
+                full_text = transcription_result['text'].strip()
+                # 硅基流动API不支持时间戳，所以创建基本的分段信息
                 all_segments = [
                     TranscriptionSegment(
-                        text=seg.get('text', ''),
-                        start_time=seg.get('start', 0),
-                        end_time=seg.get('end', 0),
-                        confidence=seg.get('confidence', 0.0)
-                    ) for seg in transcription_result.get('segments', [])
+                        text=full_text,
+                        start_time=0,
+                        end_time=audio_info['duration'],
+                        confidence=0.8  # 默认置信度
+                    )
                 ]
                 language = transcription_result.get('language', 'unknown')
+                
+                print(f"[{task_id}] 短音频处理完成: 文本长度={len(full_text)}")
+                
+                # 统一延迟策略：短音频处理成功后也添加延迟
+                time.sleep(1)
             
             # 创建转录结果对象
             print(f"[{task_id}] 合并转录结果: 文本长度={len(full_text)}, 片段数={len(all_segments)}")
@@ -325,19 +419,21 @@ class VideoProcessor:
         task_dir = os.path.join(self.output_dir, task.id)
         os.makedirs(task_dir, exist_ok=True)
         
-        # 保存逐字稿
-        transcript_path = os.path.join(task_dir, 'transcript.txt')
+        # 保存逐字稿 (改为Markdown格式)
+        transcript_path = os.path.join(task_dir, 'transcript.md')
         with open(transcript_path, 'w', encoding='utf-8') as f:
+            f.write(f"# {task.video_info.title if task.video_info else '视频逐字稿'}\n\n")
+            f.write(f"**视频URL:** {task.video_url}\n\n")
+            if task.video_info:
+                if task.video_info.uploader:
+                    f.write(f"**UP主:** {task.video_info.uploader}\n")
+                if task.video_info.duration:
+                    duration = self._format_duration(task.video_info.duration)
+                    f.write(f"**时长:** {duration}\n")
+            f.write(f"**处理时间:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+            f.write("---\n\n")
             f.write(task.transcript)
         
-        # 保存带时间戳的逐字稿
-        if task.transcription and task.transcription.segments:
-            timestamped_path = os.path.join(task_dir, 'transcript_with_timestamps.txt')
-            with open(timestamped_path, 'w', encoding='utf-8') as f:
-                for segment in task.transcription.segments:
-                    start_time = self._format_timestamp(segment.start_time)
-                    end_time = self._format_timestamp(segment.end_time)
-                    f.write(f"[{start_time} - {end_time}] {segment.text}\n")
         
         # 保存总结报告
         summary_path = os.path.join(task_dir, 'summary.md')
@@ -346,7 +442,7 @@ class VideoProcessor:
             f.write(f"**视频URL:** {task.video_url}\n")
             if task.video_info:
                 f.write(f"**上传者:** {task.video_info.uploader}\n")
-                f.write(f"**时长:** {self._format_timestamp(task.video_info.duration)}\n")
+                f.write(f"**时长:** {self._format_duration(task.video_info.duration)}\n")
             f.write(f"**处理时间:** {task.created_at.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
             
             if task.summary.get('brief_summary'):
@@ -365,12 +461,16 @@ class VideoProcessor:
         with open(data_path, 'w', encoding='utf-8') as f:
             json.dump(task.to_dict(), f, ensure_ascii=False, indent=2)
     
-    def _format_timestamp(self, seconds: float) -> str:
-        """格式化时间戳"""
+    def _format_duration(self, seconds: float) -> str:
+        """格式化时长显示"""
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
-        seconds = int(seconds % 60)
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        secs = int(seconds % 60)
+        
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{secs:02d}"
+        else:
+            return f"{minutes}:{secs:02d}"
     
     def get_task_progress(self, task_id: str) -> Dict[str, Any]:
         """获取任务进度"""
@@ -583,3 +683,17 @@ class VideoProcessor:
         except Exception as e:
             print(f"检查文件关联性失败 {file_name} <-> {task_id}: {e}")
             return False
+    
+    def _format_timestamp(self, seconds: float) -> str:
+        """格式化时间戳为可读格式"""
+        if not seconds or seconds <= 0:
+            return "00:00"
+        
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        else:
+            return f"{minutes:02d}:{secs:02d}"

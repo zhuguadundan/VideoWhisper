@@ -1,6 +1,7 @@
 import yt_dlp
 import os
 import asyncio
+import shutil
 from typing import Dict, Any, Optional
 from app.config.settings import Config
 from app.services.file_manager import FileManager
@@ -13,6 +14,39 @@ class VideoDownloader:
         self.temp_dir = self.config['system']['temp_dir']
         self.file_manager = FileManager()
         os.makedirs(self.temp_dir, exist_ok=True)
+    
+    def _get_ffmpeg_path(self) -> Optional[str]:
+        """检测FFmpeg路径"""
+        # 首先尝试从系统PATH中找到ffmpeg
+        ffmpeg_path = shutil.which('ffmpeg')
+        if ffmpeg_path:
+            return ffmpeg_path
+        
+        # Windows下的常见安装位置
+        if os.name == 'nt':
+            common_paths = [
+                'C:\\ffmpeg\\bin\\ffmpeg.exe',
+                'C:\\ffmpeg\\ffmpeg.exe',
+                'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
+                'C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe'
+            ]
+            for path in common_paths:
+                if os.path.exists(path):
+                    return path
+        
+        # Linux/Mac下的常见位置
+        else:
+            common_paths = [
+                '/usr/bin/ffmpeg',
+                '/usr/local/bin/ffmpeg',
+                '/opt/homebrew/bin/ffmpeg'
+            ]
+            for path in common_paths:
+                if os.path.exists(path):
+                    return path
+        
+        print("警告: 未找到FFmpeg，请确保已安装FFmpeg并添加到系统PATH")
+        return None
     
     def _get_downloader_config(self, url: str, cookies_str: str = None) -> Dict[str, Any]:
         """根据URL获取下载器配置"""
@@ -130,7 +164,8 @@ class VideoDownloader:
                 'preferredcodec': 'wav',
                 'preferredquality': '192',
             }],
-            'ffmpeg_location': '/usr/bin/ffmpeg' if os.name == 'posix' else 'C:\\ffmpeg',  # 根据系统指定ffmpeg位置
+            # 检测FFmpeg位置
+            'ffmpeg_location': self._get_ffmpeg_path(),
         })
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
