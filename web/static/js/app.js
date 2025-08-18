@@ -847,8 +847,17 @@ async function importToObsidian() {
                 );
             }
             
+            // 尝试复制内容到剪贴板（用于支持&clipboard参数的URI）
+            try {
+                await navigator.clipboard.writeText(obsidianContent);
+                console.log('✅ 内容已复制到剪贴板');
+            } catch (clipboardError) {
+                console.warn('⚠️ 剪贴板复制失败:', clipboardError);
+                // 即使剪贴板失败也继续执行，因为还有content参数的备选方案
+            }
+            
             // 尝试使用优化的URI格式
-            const success = await tryOpenObsidianWithUris(uriResult.uris, fileName, folderPath);
+            const success = await tryOpenObsidianWithUris(uriResult.uris, fileName, folderPath, obsidianContent);
             
             if (success) {
                 const folderInfo = folderPath ? `到文件夹 "${folderPath}"` : '到根目录';
@@ -917,11 +926,11 @@ async function importToObsidian() {
 }
 
 // 优化的Obsidian URI打开函数
-async function tryOpenObsidianWithUris(uris, fileName, folderPath) {
+async function tryOpenObsidianWithUris(uris, fileName, folderPath, content) {
     console.log('📋 正在尝试打开Obsidian，共有', uris.length, '种URI格式');
     
     // 显示提示信息给用户
-    showAlert('🚀 正在尝试打开Obsidian...请稍候', 'info');
+    showAlert('🚀 正在尝试打开Obsidian...请稍候<br><small>已复制内容到剪贴板</small>', 'info');
     
     for (let i = 0; i < uris.length; i++) {
         const uri = uris[i];
@@ -1263,40 +1272,44 @@ function buildObsidianUri(filePath, content, vaultName) {
         .replace(/\(/g, '%28')  // 左括号
         .replace(/\)/g, '%29'); // 右括号
     
-    // 根据Obsidian官方文档构建正确的URI格式
+    // 根据官方插件抓取的请求格式构建URI
     
     // 提取文件名（去掉路径和.md扩展名）
     const fileName = filePath.split('/').pop().replace('.md', '');
     const folderPath = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : '';
     
-    // 格式1: Obsidian官方标准格式 - 创建新笔记
-    // obsidian://new?vault=VaultName&name=FileName&content=Content
-    const standardUri = `obsidian://new?vault=${encodedVaultName}&name=${encodeURIComponent(fileName)}&content=${encodedContent}`;
+    // 格式1: 官方插件使用的格式 - obsidian://new?file=完整路径&clipboard
+    // 这是根据用户抓取的请求分析得出的正确格式
+    const officialUri = `obsidian://new?file=${encodedFilePath}&clipboard`;
     
-    // 格式2: 带路径的创建格式（如果有文件夹）
-    let pathBasedUri = standardUri;
+    // 格式2: 官方插件使用的格式（带仓库名）
+    const officialWithVaultUri = `obsidian://new?vault=${encodedVaultName}&file=${encodedFilePath}&clipboard`;
+    
+    // 格式3: 传统的content参数格式（作为备选）
+    const contentBasedUri = `obsidian://new?vault=${encodedVaultName}&file=${encodedFilePath}&content=${encodedContent}`;
+    
+    // 格式4: name + content 格式（作为备选）
+    let nameContentUri = `obsidian://new?vault=${encodedVaultName}&name=${encodeURIComponent(fileName)}&content=${encodedContent}`;
     if (folderPath) {
-        pathBasedUri = `obsidian://new?vault=${encodedVaultName}&name=${encodeURIComponent(fileName)}&path=${encodeURIComponent(folderPath)}&content=${encodedContent}`;
+        nameContentUri = `obsidian://new?vault=${encodedVaultName}&name=${encodeURIComponent(fileName)}&path=${encodeURIComponent(folderPath)}&content=${encodedContent}`;
     }
     
-    // 格式3: 使用file参数的格式
-    const fileBasedUri = `obsidian://new?vault=${encodedVaultName}&file=${encodedFilePath}&content=${encodedContent}`;
-    
-    // 格式4: Advanced URI格式 (需要插件支持)
+    // 格式5: Advanced URI格式 (需要插件支持)
     const advancedUri = `obsidian://advanced-uri?vault=${encodedVaultName}&file=${encodedFilePath}&data=${encodedContent}&mode=new`;
     
     // 调试信息：显示生成的URI（仅显示前部分，避免泄露内容）
     console.log('🔗 生成的Obsidian URI格式:');
-    console.log('1. 标准格式:', standardUri.substring(0, 150) + '...');
-    console.log('2. 带路径格式:', pathBasedUri.substring(0, 150) + '...');
-    console.log('3. 文件格式:', fileBasedUri.substring(0, 150) + '...');
-    console.log('4. Advanced URI:', advancedUri.substring(0, 150) + '...');
+    console.log('1. 官方插件格式:', officialUri);
+    console.log('2. 官方插件+仓库:', officialWithVaultUri);
+    console.log('3. 内容传递格式:', contentBasedUri.substring(0, 150) + '...');
+    console.log('4. 名称+内容格式:', nameContentUri.substring(0, 150) + '...');
+    console.log('5. Advanced URI:', advancedUri.substring(0, 150) + '...');
     console.log('📄 文件路径:', filePath);
     console.log('📝 内容长度:', processedContent.length, '字符');
     
-    // 返回修正后的URI列表，按成功率排序
+    // 返回修正后的URI列表，按成功率排序（优先使用官方插件格式）
     return {
-        uris: [standardUri, pathBasedUri, fileBasedUri, advancedUri],
+        uris: [officialUri, officialWithVaultUri, contentBasedUri, nameContentUri, advancedUri],
         contentLength: processedContent.length,
         originalLength: content.length,
         wasTruncated: content.length > maxContentLength
