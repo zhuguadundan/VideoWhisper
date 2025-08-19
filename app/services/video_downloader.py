@@ -48,6 +48,46 @@ class VideoDownloader:
         print("警告: 未找到FFmpeg，请确保已安装FFmpeg并添加到系统PATH")
         return None
     
+    def _get_info_extraction_config(self, url: str, cookies_str: str = None) -> Dict[str, Any]:
+        """专门用于信息提取的配置 - 确保获取完整元数据"""
+        base_opts = {
+            'quiet': self.config.get('downloader', {}).get('general', {}).get('quiet', False),
+            'no_warnings': False,
+            'extract_flat': False,  # 确保提取完整信息
+            'writeinfojson': False,  # 不需要写入信息文件
+        }
+        
+        # YouTube配置 - 专门为信息提取优化
+        if 'youtube.com' in url or 'youtu.be' in url:
+            base_opts.update({
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['web', 'android', 'ios'],  # 多客户端尝试
+                        # 不跳过网页解析，确保获取完整元数据
+                        'skip': [],  # 不跳过任何信息源
+                    }
+                },
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            })
+        
+        # 处理cookies（复用原有逻辑）
+        if cookies_str and ('youtube.com' in url or 'youtu.be' in url):
+            import tempfile
+            cookies_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+            cookies_file.write("# Netscape HTTP Cookie File\n")
+            
+            for cookie_pair in cookies_str.split(';'):
+                cookie_pair = cookie_pair.strip()
+                if '=' in cookie_pair:
+                    name, value = cookie_pair.split('=', 1)
+                    name, value = name.strip(), value.strip()
+                    cookies_file.write(f"youtube.com\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n")
+            
+            cookies_file.close()
+            base_opts['cookiefile'] = cookies_file.name
+        
+        return base_opts
+
     def _get_downloader_config(self, url: str, cookies_str: str = None) -> Dict[str, Any]:
         """根据URL获取下载器配置"""
         base_opts = {
@@ -122,19 +162,56 @@ class VideoDownloader:
     
     def get_video_info(self, url: str, cookies_str: str = None) -> Dict[str, Any]:
         """获取视频基本信息"""
-        ydl_opts = self._get_downloader_config(url, cookies_str)
+        # 使用专门的信息提取配置，确保获取完整元数据
+        ydl_opts = self._get_info_extraction_config(url, cookies_str)
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
                 info = ydl.extract_info(url, download=False)
+                
+                # 尝试多个可能的上传者字段，确保获取到准确信息
+                # 按优先级顺序尝试不同的字段
+                uploader = None
+                
+                # 优先级1: 频道相关信息（通常最准确）
+                if info.get('channel'):
+                    uploader = info['channel']
+                elif info.get('channel_id'):
+                    uploader = info['channel_id']
+                
+                # 优先级2: 上传者信息
+                elif info.get('uploader'):
+                    uploader = info['uploader']
+                elif info.get('uploader_id'):
+                    uploader = info['uploader_id']
+                
+                # 优先级3: 其他创建者信息
+                elif info.get('creator'):
+                    uploader = info['creator']
+                elif info.get('artist'):
+                    uploader = info['artist']
+                
+                # 最后的备选
+                if not uploader or uploader == 'NA':
+                    uploader = 'Unknown'
+                
+                # 调试输出 - 帮助诊断问题
+                print(f"[DEBUG] 视频信息提取:")
+                print(f"  - channel: {info.get('channel', 'None')}")
+                print(f"  - uploader: {info.get('uploader', 'None')}")
+                print(f"  - uploader_id: {info.get('uploader_id', 'None')}")
+                print(f"  - creator: {info.get('creator', 'None')}")
+                print(f"  - 最终选择: {uploader}")
+                
                 return {
                     'title': info.get('title', 'Unknown'),
                     'duration': info.get('duration', 0),
-                    'uploader': info.get('uploader', 'Unknown'),
+                    'uploader': uploader,
                     'url': url,
                     'thumbnail': info.get('thumbnail', ''),
                     'description': info.get('description', '')[:500] + '...' if info.get('description', '') else ''
                 }
+                
             except Exception as e:
                 # 提供更友好的错误信息
                 error_msg = str(e)

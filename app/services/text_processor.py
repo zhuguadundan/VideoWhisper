@@ -18,6 +18,10 @@ class TextProcessor:
         self.MAX_TOKENS_PER_REQUEST = 32000  # 大幅提高token限制以支持长视频
         self.MAX_CHARS_PER_SEGMENT = 48000  # 大幅增加每段最大字符数以减少分段
         self.TOKEN_ESTIMATE_RATIO = 1.5  # 中文字符到token的估算比例
+        
+        # 跟踪运行时配置的自定义提供商
+        self.runtime_custom_provider = False
+        
         # 初始化配置
         if openai_config:
             self.openai_config = openai_config
@@ -123,8 +127,11 @@ class TextProcessor:
                     api_key=api_key,
                     base_url=base_url if base_url else None
                 )
+                # 标记为运行时自定义提供商
+                self.runtime_custom_provider = True
             except Exception:
                 self.openai_client = None
+                self.runtime_custom_provider = False
                 
         elif provider == 'gemini':
             self.gemini_config = {
@@ -151,7 +158,11 @@ class TextProcessor:
         if self.siliconflow_client:
             available.append('siliconflow')
         if self.openai_client:
-            available.append('openai')
+            # 如果是运行时设置的自定义提供商，添加'custom'；否则添加'openai'
+            if self.runtime_custom_provider:
+                available.append('custom')
+            else:
+                available.append('openai')
         if self.gemini_model:
             available.append('gemini')
         return available
@@ -166,9 +177,11 @@ class TextProcessor:
         if not available:
             raise ValueError("没有可用的AI文本处理服务提供商，请先配置API密钥")
         
-        # 优先级：siliconflow > openai > gemini
+        # 优先级：siliconflow > custom > openai > gemini
         if 'siliconflow' in available:
             return 'siliconflow'
+        elif 'custom' in available:
+            return 'custom'
         elif 'openai' in available:
             return 'openai'
         else:

@@ -311,8 +311,6 @@ class VideoProcessor:
                 all_segments = [
                     TranscriptionSegment(
                         text=full_text,
-                        start_time=0,
-                        end_time=audio_info['duration'],
                         confidence=0.8  # 默认置信度
                     )
                 ]
@@ -488,6 +486,7 @@ class VideoProcessor:
             "processed_segments": task.processed_segments,
             "total_segments": task.total_segments,
             "video_title": task.video_info.title if task.video_info else "",
+            "video_uploader": task.video_info.uploader if task.video_info else "",
             "video_duration": task.video_info.duration if task.video_info else 0,
             "error_message": task.error_message,
             "ai_response_times": getattr(task, 'ai_response_times', {}),

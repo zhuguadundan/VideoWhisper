@@ -62,7 +62,9 @@
       "WebFetch(domain:publish.obsidian.md)",
       "Bash(node -c \"C:\\videowhisper\\VideoWhisper\\web\\static\\js\\app.js\")",
       "Bash(node -c \"C:\\videowhisper\\VideoWhisper\\web\\static\\js\\settings.js\")",
-      "WebFetch(domain:help.obsidian.md)"
+      "WebFetch(domain:help.obsidian.md)",
+      "Bash(build-docker.bat 0.20)",
+      "Bash(dir logs)"
     ],
     "deny": []
   }

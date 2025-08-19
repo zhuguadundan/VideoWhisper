@@ -446,6 +446,9 @@ function updateProgress(data) {
             const duration = formatDuration(data.video_duration);
             document.getElementById('videoDuration').textContent = duration;
         }
+        if (data.video_uploader) {
+            document.getElementById('videoUploader').textContent = data.video_uploader;
+        }
         videoInfo.style.display = 'block';
     }
 }
