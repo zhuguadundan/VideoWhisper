@@ -51,6 +51,12 @@ cookies.txt
 # Config files with sensitive data
 config_local.yaml
 
+# SSL certificates and private keys
+*.pem
+*.key
+*.crt
+*.csr
+
 # FFmpeg binaries
 ffmpeg.exe
 ffprobe.exe
