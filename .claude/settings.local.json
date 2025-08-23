@@ -64,7 +64,8 @@
       "Bash(node -c \"C:\\videowhisper\\VideoWhisper\\web\\static\\js\\settings.js\")",
       "WebFetch(domain:help.obsidian.md)",
       "Bash(build-docker.bat 0.20)",
-      "Bash(dir logs)"
+      "Bash(dir logs)",
+      "Bash(git filter-branch --force --index-filter 'git rm --cached --ignore-unmatch config/key.pem config/cert.pem' --prune-empty --tag-name-filter cat -- --all)"
     ],
     "deny": []
   }
