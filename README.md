@@ -1,6 +1,6 @@
 # VideoWhisper - 视频智语 🎥✨
 
-> 当前版本：v3.2.0 | 最后更新：2025-08-19
+> 当前版本：v3.3.0 | 最后更新：2025-08-23
 
 本项目完全依赖硅基流动服务，如未注册请点击下方邀请链接注册可获14元赠金
 https://cloud.siliconflow.cn/i/uy4d8V8Y
@@ -20,6 +20,10 @@ https://cloud.siliconflow.cn/i/uy4d8V8Y
 - 🐳 **容器部署**: Docker一键部署，简单易用
 
 ## 📈 版本更新
+
+### v3.3.0 (2025-08-23) - 自签https支持 🚀
+- ✅ obsidian导入由于浏览器安全限制必须本地启动或者启动https，添加开箱即用的自签https证书默认端口5443（需更新dockercompose），同时保留http访问，最新镜像已上传dockerhub
+- ✅ 同时支持外部反向代理，可以直接用npm、lucky等可视化反向代理工具直接反向代理http5000端口
 
 ### v3.2.0 (2025-08-19) - debug 🚀
 - ✅ 修复TranscriptionSegment初始化参数错误导致小于5分钟的短视频无法生成逐字稿
@@ -56,6 +60,8 @@ https://cloud.siliconflow.cn/i/uy4d8V8Y
 - **部署**: Docker容器化
 
 ## 🚀 快速开始
+
+详细图文教程可见[公众号文章](https://mp.weixin.qq.com/s/DOTWF3UGV9Dvi3xQxAfJcg)
 
 ### Docker部署（推荐）
 

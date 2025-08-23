@@ -31,6 +31,19 @@ web:
   port: 5000
   debug: true
 
+# HTTPS配置
+https:
+  enabled: true   # 是否启用HTTPS（默认启用）
+  port: 5443      # HTTPS端口
+  host: "0.0.0.0"
+  auto_generate: true  # 是否自动生成自签名证书
+  domain: "localhost"  # 证书域名
+  country: "CN"        # 国家代码
+  state: "Beijing"     # 州/省
+  organization: "VideoWhisper Self-Signed"  # 组织名称
+  cert_file: "config/cert.pem"  # 证书文件路径
+  key_file: "config/key.pem"    # 私钥文件路径
+
 # 视频下载配置
 downloader:
   # 通用配置

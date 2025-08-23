@@ -31,6 +31,19 @@ web:
   port: 5000
   debug: false       # 生产环境关闭调试模式
 
+# HTTPS配置 - Docker环境默认启用
+https:
+  enabled: true    # 默认启用HTTPS
+  port: 5443      # HTTPS端口
+  host: "0.0.0.0"
+  auto_generate: true  # 自动生成自签名证书
+  domain: "localhost"  # 证书域名
+  country: "CN"        # 国家代码
+  state: "Beijing"     # 州/省
+  organization: "VideoWhisper Self-Signed"  # 组织名称
+  cert_file: "/app/config/cert.pem"  # 证书文件路径（容器内路径）
+  key_file: "/app/config/key.pem"    # 私钥文件路径（容器内路径）
+
 # 视频下载配置 - Docker环境优化
 downloader:
   general:

@@ -1,9 +1,10 @@
 services:
   videowhisper:
-    image: zhugua/videowhisper:latest  # 使用v0.15版本
+    image: zhugua/videowhisper:latest  # 使用v0.50版本
     container_name: videowhisper-app
     ports:
-      - "5000:5000"
+      - "5000:5000"    # HTTP端口
+      - "5443:5443"   # HTTPS端口（默认启用）
     volumes:
       # 配置文件映射
       - ./config:/app/config
@@ -12,14 +13,19 @@ services:
       - ./temp:/app/temp
       - ./logs:/app/logs
       # 可选：如果需要持久化任务历史
-      # - ./data:/app/data
+      - ./data:/app/data
     environment:
       - TZ=Asia/Shanghai
       - FLASK_ENV=production
       - PYTHONPATH=/app
       # 设置文件权限相关环境变量
       - PYTHONUNBUFFERED=1
-      - APP_VERSION=0.15.0
+      # HTTPS配置（默认启用）
+      - HTTPS_ENABLED=true
+      - HTTPS_PORT=5443
+      - HTTPS_HOST=0.0.0.0
+      - CERT_AUTO_GENERATE=true
+      - CERT_DOMAIN=你服务器ip或域名
     restart: unless-stopped
     
     # 健康检查

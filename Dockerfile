@@ -2,15 +2,15 @@
 FROM python:3.9-slim
 
 # 设置版本标签
-LABEL version="0.20.0"
-LABEL description="VideoWhisper - AI视频转文本处理平台，修复Obsidian导入功能，支持官方插件格式"
+LABEL version="0.50.0"
+LABEL description="VideoWhisper - AI视频转文本处理平台，版本0.50"
 LABEL maintainer="VideoWhisper Team"
 
 # 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
-    APP_VERSION=0.20.0
+    APP_VERSION=0.50.0
 
 # 设置工作目录
 WORKDIR /app
@@ -49,7 +49,7 @@ RUN sed -i 's/\r$//' /app/docker-entrypoint.sh && \
     chmod +x /app/docker-entrypoint.sh
 
 # 暴露端口
-EXPOSE 5000
+EXPOSE 5000 5443
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \

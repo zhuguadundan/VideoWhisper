@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request
 from app.config.settings import Config
+from app.utils.certificate_manager import CertificateManager, create_ssl_context
 import logging
 import traceback
 import os
@@ -10,6 +11,39 @@ def create_app():
                 static_folder='../web/static')
     
     app.config.from_object(Config)
+    
+    # 获取HTTPS配置
+    https_config = Config.get_https_config()
+    
+    # 初始化证书管理器
+    cert_manager = CertificateManager(https_config)
+    
+    # 自动生成证书（如果启用且不存在）
+    if https_config['enabled'] and https_config['auto_generate']:
+        print("HTTPS已启用，检查SSL证书...")
+        if cert_manager.ensure_certificates():
+            print("SSL证书已准备就绪")
+        else:
+            print("SSL证书生成失败，将仅使用HTTP")
+    
+    # 配置HTTPS上下文（如果证书存在）
+    ssl_context = None
+    if https_config['enabled'] and cert_manager.certificates_exist():
+        try:
+            ssl_context = create_ssl_context(https_config['cert_file'], https_config['key_file'])
+            if ssl_context:
+                print(f"HTTPS已启用，监听 {https_config['host']}:{https_config['port']}")
+                # 将SSL上下文存储到app对象中，供run.py使用
+                app.ssl_context = ssl_context
+                app.https_config = https_config
+            else:
+                print("SSL上下文创建失败，将仅使用HTTP")
+        except Exception as e:
+            print(f"SSL上下文创建失败: {e}")
+            https_config['enabled'] = False
+    else:
+        app.ssl_context = None
+        app.https_config = https_config
     
     # 配置日志
     logging.basicConfig(

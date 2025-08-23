@@ -2,21 +2,27 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Development Environment
+
+**Primary Platform**: Windows 10
+- All commands are compatible with Windows Command Prompt (cmd) and PowerShell
+- Cross-platform support provided where noted
+
 ## Common Development Commands
 
 ### Running the Application
-```bash
+```cmd
 python run.py
 ```
 The Flask web app will start on http://localhost:5000
 
 ### Installing Dependencies
-```bash
+```cmd
 pip install -r requirements.txt
 ```
 
 ### Testing
-```bash
+```cmd
 # Simple test - validates basic system components
 python test_simple.py
 
@@ -32,7 +38,7 @@ python test.py
 - **Linux/Mac**: Install via package manager (apt, brew, etc.)
 
 ### Docker Operations
-```bash
+```cmd
 # Build Docker image
 build-docker.bat              # Windows
 ./build-docker.sh            # Linux/Mac
