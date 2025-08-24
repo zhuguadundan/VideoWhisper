@@ -48,6 +48,27 @@ class VideoProcessor:
         # 加载已有任务数据
         self.load_tasks_from_disk()
     
+    def _sanitize_filename(self, filename: str) -> str:
+        """清理文件名中的非法字符，适配Windows系统"""
+        # Windows禁用字符: < > : " | ? * \ /
+        illegal_chars = r'[<>:"|?*\\\\/]'
+        
+        # 替换非法字符为下划线
+        sanitized = re.sub(illegal_chars, '_', filename)
+        
+        # 移除开头结尾的空格和点号（Windows特殊要求）
+        sanitized = sanitized.strip(' .')
+        
+        # 限制长度避免路径过长问题
+        if len(sanitized) > 100:
+            sanitized = sanitized[:100]
+        
+        # 如果清理后为空，使用默认名称
+        if not sanitized:
+            sanitized = 'video_task'
+            
+        return sanitized
+    
     def create_task(self, video_url: str, youtube_cookies: str = None) -> str:
         """创建新的处理任务 - 简化版"""
         task_id = str(uuid.uuid4())
@@ -121,23 +142,45 @@ class VideoProcessor:
             task.progress_detail = "正在下载音频文件..."
             self.save_tasks_to_disk()
             
-            audio_path = self.video_downloader.download_audio_only(task.video_url, task.id, cookies_str=task.youtube_cookies)
-            task.audio_file_path = audio_path
-            task.progress = 30
+            try:
+                print(f"[DEBUG] 开始调用download_audio_only")
+                audio_path = self.video_downloader.download_audio_only(task.video_url, task.id, cookies_str=task.youtube_cookies)
+                print(f"[DEBUG] download_audio_only完成，返回路径: {audio_path}")
+                task.audio_file_path = audio_path
+                task.progress = 30
+            except Exception as download_error:
+                print(f"[ERROR] 音频下载阶段失败: {download_error}")
+                print(f"[ERROR] 错误类型: {type(download_error)}")
+                raise Exception(f"音频下载失败: {download_error}")
             
             # 3. 处理长音频（分段）
             print(f"[{task_id}] 处理音频...")
             task.progress_stage = "处理音频"
             task.progress_detail = "分析音频文件..."
             self.save_tasks_to_disk()
-            audio_info = self.audio_extractor.get_audio_info(audio_path)
+            
+            try:
+                print(f"[DEBUG] 开始获取音频信息: {audio_path}")
+                audio_info = self.audio_extractor.get_audio_info(audio_path)
+                print(f"[DEBUG] 音频信息: {audio_info}")
+            except Exception as audio_info_error:
+                print(f"[ERROR] 获取音频信息失败: {audio_info_error}")
+                print(f"[ERROR] 错误类型: {type(audio_info_error)}")
+                raise Exception(f"获取音频信息失败: {audio_info_error}")
             
             if audio_info['duration'] > 300:  # 超过5分钟分段处理
-                segments = self.audio_extractor.split_audio_by_duration(audio_path, 300)
-                task.progress = 40
-                task.total_segments = len(segments)
-                task.progress_detail = f"音频已分割为 {len(segments)} 个片段"
-                self.save_tasks_to_disk()
+                try:
+                    print(f"[DEBUG] 音频超过5分钟，开始分段处理")
+                    segments = self.audio_extractor.split_audio_by_duration(audio_path, 300)
+                    print(f"[DEBUG] 音频分段完成，共 {len(segments)} 个片段")
+                    task.progress = 40
+                    task.total_segments = len(segments)
+                    task.progress_detail = f"音频已分割为 {len(segments)} 个片段"
+                    self.save_tasks_to_disk()
+                except Exception as split_error:
+                    print(f"[ERROR] 音频分段失败: {split_error}")
+                    print(f"[ERROR] 错误类型: {type(split_error)}")
+                    raise Exception(f"音频分段失败: {split_error}")
                 
                 # 4. 语音转文字
                 print(f"[{task_id}] 语音转文字...")
@@ -414,50 +457,86 @@ class VideoProcessor:
     
     def _save_results(self, task: ProcessingTask):
         """保存处理结果"""
+        # 使用任务ID作为目录名，确保路径安全
         task_dir = os.path.join(self.output_dir, task.id)
         os.makedirs(task_dir, exist_ok=True)
         
-        # 保存逐字稿 (改为Markdown格式)
-        transcript_path = os.path.join(task_dir, 'transcript.md')
-        with open(transcript_path, 'w', encoding='utf-8') as f:
-            f.write(f"# {task.video_info.title if task.video_info else '视频逐字稿'}\n\n")
-            f.write(f"**视频URL:** {task.video_url}\n\n")
-            if task.video_info:
-                if task.video_info.uploader:
-                    f.write(f"**UP主:** {task.video_info.uploader}\n")
-                if task.video_info.duration:
-                    duration = self._format_duration(task.video_info.duration)
-                    f.write(f"**时长:** {duration}\n")
-            f.write(f"**处理时间:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-            f.write("---\n\n")
-            f.write(task.transcript)
+        # 安全的文件名基础（基于清理后的标题或任务ID）
+        if task.video_info and task.video_info.title:
+            safe_filename_base = self._sanitize_filename(task.video_info.title)
+        else:
+            safe_filename_base = f"video_{task.id[:8]}"
         
+        # 保存逐字稿 (改为Markdown格式)
+        transcript_path = os.path.join(task_dir, f'transcript_{safe_filename_base}.md')
+        try:
+            with open(transcript_path, 'w', encoding='utf-8') as f:
+                f.write(f"# {task.video_info.title if task.video_info else '视频逐字稿'}\n\n")
+                f.write(f"**视频URL:** {task.video_url}\n\n")
+                if task.video_info:
+                    if task.video_info.uploader:
+                        f.write(f"**UP主:** {task.video_info.uploader}\n")
+                    if task.video_info.duration:
+                        duration = self._format_duration(task.video_info.duration)
+                        f.write(f"**时长:** {duration}\n")
+                f.write(f"**处理时间:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write("---\n\n")
+                f.write(task.transcript)
+        except Exception as e:
+            print(f"保存逐字稿失败: {e}")
+            # 使用基础文件名重试
+            transcript_path = os.path.join(task_dir, 'transcript.md')
+            with open(transcript_path, 'w', encoding='utf-8') as f:
+                f.write(f"# 视频逐字稿\n\n")
+                f.write(f"**视频URL:** {task.video_url}\n\n")
+                f.write(f"**处理时间:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                f.write("---\n\n")
+                f.write(task.transcript)
         
         # 保存总结报告
-        summary_path = os.path.join(task_dir, 'summary.md')
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            f.write(f"# {task.video_info.title if task.video_info else '视频总结报告'}\n\n")
-            f.write(f"**视频URL:** {task.video_url}\n")
-            if task.video_info:
-                f.write(f"**上传者:** {task.video_info.uploader}\n")
-                f.write(f"**时长:** {self._format_duration(task.video_info.duration)}\n")
-            f.write(f"**处理时间:** {task.created_at.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-            
-            if task.summary.get('brief_summary'):
-                f.write("## 简要摘要\n\n")
-                f.write(task.summary['brief_summary'] + "\n\n")
-            
-            if task.summary.get('detailed_summary'):
-                f.write(task.summary['detailed_summary'] + "\n\n")
-            
-            if task.summary.get('keywords'):
-                f.write("## 关键词\n\n")
-                f.write(task.summary['keywords'] + "\n\n")
+        summary_path = os.path.join(task_dir, f'summary_{safe_filename_base}.md')
+        try:
+            with open(summary_path, 'w', encoding='utf-8') as f:
+                f.write(f"# {task.video_info.title if task.video_info else '视频总结报告'}\n\n")
+                f.write(f"**视频URL:** {task.video_url}\n")
+                if task.video_info:
+                    f.write(f"**上传者:** {task.video_info.uploader}\n")
+                    f.write(f"**时长:** {self._format_duration(task.video_info.duration)}\n")
+                f.write(f"**处理时间:** {task.created_at.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                
+                if task.summary.get('brief_summary'):
+                    f.write("## 简要摘要\n\n")
+                    f.write(task.summary['brief_summary'] + "\n\n")
+                
+                if task.summary.get('detailed_summary'):
+                    f.write(task.summary['detailed_summary'] + "\n\n")
+                
+                if task.summary.get('keywords'):
+                    f.write("## 关键词\n\n")
+                    f.write(task.summary['keywords'] + "\n\n")
+        except Exception as e:
+            print(f"保存总结报告失败: {e}")
+            # 使用基础文件名重试
+            summary_path = os.path.join(task_dir, 'summary.md')
+            with open(summary_path, 'w', encoding='utf-8') as f:
+                f.write(f"# 视频总结报告\n\n")
+                f.write(f"**视频URL:** {task.video_url}\n")
+                f.write(f"**处理时间:** {task.created_at.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                if task.summary.get('brief_summary'):
+                    f.write("## 简要摘要\n\n")
+                    f.write(task.summary['brief_summary'] + "\n\n")
         
         # 保存完整数据（JSON格式）
-        data_path = os.path.join(task_dir, 'data.json')
-        with open(data_path, 'w', encoding='utf-8') as f:
-            json.dump(task.to_dict(), f, ensure_ascii=False, indent=2)
+        data_path = os.path.join(task_dir, f'data_{safe_filename_base}.json')
+        try:
+            with open(data_path, 'w', encoding='utf-8') as f:
+                json.dump(task.to_dict(), f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"保存JSON数据失败: {e}")
+            # 使用基础文件名重试
+            data_path = os.path.join(task_dir, 'data.json')
+            with open(data_path, 'w', encoding='utf-8') as f:
+                json.dump(task.to_dict(), f, ensure_ascii=False, indent=2)
     
     def _format_duration(self, seconds: float) -> str:
         """格式化时长显示"""

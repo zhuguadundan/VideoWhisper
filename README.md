@@ -1,6 +1,6 @@
 # VideoWhisper - 视频智语 🎥✨
 
-> 当前版本：v3.3.0 | 最后更新：2025-08-23
+> 当前版本：v3.4.0 | 最后更新：2025-08-24
 
 本项目完全依赖硅基流动服务，如未注册请点击下方邀请链接注册可获14元赠金
 https://cloud.siliconflow.cn/i/uy4d8V8Y
@@ -20,6 +20,9 @@ https://cloud.siliconflow.cn/i/uy4d8V8Y
 - 🐳 **容器部署**: Docker一键部署，简单易用
 
 ## 📈 版本更新
+
+### v3.4.0 (2025-08-24) - debug 🚀
+- ✅ YouTube加强了反机器人措施，要求使用PO Token（Proof of Origin Token）进行身份验证，最新镜像更新yt-dlp到最新版并更新cookie处理方式已修复此问题
 
 ### v3.3.0 (2025-08-23) - 自签https支持 🚀
 - ✅ obsidian导入由于浏览器安全限制必须本地启动或者启动https，添加开箱即用的自签https证书默认端口5443（需更新dockercompose），同时保留http访问，最新镜像已上传dockerhub
@@ -113,6 +116,11 @@ python test_complete.py    # 完整集成测试
 ## 📄 许可证
 
 本项目采用 **MIT 许可证**
+
+## 致谢
+
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) 
+- [硅基流动](https://cloud.siliconflow.cn/) 
 
 ---
 

@@ -146,8 +146,38 @@ class FileManager:
     
     def get_task_temp_dir(self, task_id: str) -> str:
         """获取任务专用的临时目录"""
+        print(f"[DEBUG] get_task_temp_dir: task_id={task_id}")
+        print(f"[DEBUG] base temp_dir: {self.temp_dir}")
+        
         task_temp_dir = os.path.join(self.temp_dir, task_id)
-        os.makedirs(task_temp_dir, exist_ok=True)
+        print(f"[DEBUG] task_temp_dir: {task_temp_dir}")
+        
+        try:
+            os.makedirs(task_temp_dir, exist_ok=True)
+            print(f"[DEBUG] 目录创建成功")
+            
+            # 验证目录是否真的存在
+            if os.path.exists(task_temp_dir):
+                print(f"[DEBUG] 目录存在验证: 通过")
+            else:
+                print(f"[ERROR] 目录存在验证: 失败")
+                raise Exception(f"目录创建后不存在: {task_temp_dir}")
+                
+            # 验证目录权限
+            try:
+                test_file = os.path.join(task_temp_dir, 'test_write.tmp')
+                with open(test_file, 'w') as f:
+                    f.write('test')
+                os.remove(test_file)
+                print(f"[DEBUG] 目录写权限验证: 通过")
+            except Exception as perm_error:
+                print(f"[ERROR] 目录写权限验证: 失败 - {perm_error}")
+                
+        except Exception as e:
+            print(f"[ERROR] 创建任务目录失败: {e}")
+            print(f"[ERROR] 错误类型: {type(e)}")
+            raise Exception(f"创建任务目录失败: {e}")
+            
         return task_temp_dir
     
     def cleanup_task_files(self, task_id: str):
