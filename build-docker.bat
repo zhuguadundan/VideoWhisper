@@ -28,8 +28,8 @@ echo ✅ Docker and Docker Compose are available
 
 REM 构建镜像
 echo.
-echo 🔨 Building Docker image v0.15...
-docker build -t videowhisper:0.15 -t videowhisper:latest .
+echo 🔨 Building Docker image v1.1...
+docker build -t videowhisper:1.1.0 -t videowhisper:latest .
 
 if !errorlevel! neq 0 (
     echo ❌ Failed to build Docker image
