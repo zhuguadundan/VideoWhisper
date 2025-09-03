@@ -67,7 +67,15 @@
       "Bash(dir logs)",
       "Bash(git filter-branch --force --index-filter 'git rm --cached --ignore-unmatch config/key.pem config/cert.pem' --prune-empty --tag-name-filter cat -- --all)",
       "Bash(git clean -fd)",
-      "Bash(yt-dlp --version)"
+      "Bash(yt-dlp --version)",
+      "Read(\\/**)",
+      "Bash(dir tempuploads)",
+      "Bash(dir output)",
+      "Bash(dir \"output\\ee1e810d-4354-4350-b28d-3c8bc9d9f951\")",
+      "Bash(dir \"b878c769-000e-40ba-8ca7-7896636a381c\")",
+      "Bash(dir \"cc089957-e1dc-45cd-9db9-ceed745ce95c\")",
+      "Bash(taskkill /F /PID 21728)",
+      "Bash(wmic process where \"ProcessId=21728\" delete)"
     ],
     "deny": []
   }

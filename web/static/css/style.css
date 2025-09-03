@@ -916,3 +916,157 @@ pre {
 .modal-footer {
     border-top: 1px solid rgba(102, 126, 234, 0.1);
 }
+
+/* 文件上传样式 */
+.upload-area {
+    border: 2px dashed var(--primary-color);
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    transition: all 0.3s ease;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(102, 126, 234, 0.05);
+}
+
+.upload-area:hover {
+    border-color: var(--primary-light);
+    background: rgba(102, 126, 234, 0.1);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+.upload-area.dragover {
+    border-color: var(--accent-color);
+    background: rgba(79, 172, 254, 0.1);
+    transform: scale(1.02);
+}
+
+.upload-content {
+    color: var(--text-secondary);
+}
+
+.upload-processing {
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.upload-buttons {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.file-info {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.file-info .alert {
+    margin-bottom: 0;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+}
+
+/* 文件类型图标 */
+.file-type-icon {
+    font-size: 2rem;
+    margin-right: 0.5rem;
+    color: var(--primary-color);
+}
+
+.file-type-icon.video {
+    color: var(--secondary-color);
+}
+
+.file-type-icon.audio {
+    color: var(--accent-color);
+}
+
+/* 上传按钮样式 */
+#selectFileBtn, #clearFileBtn {
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+#selectFileBtn:hover, #clearFileBtn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+#submitUploadBtn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+#submitUploadBtn:disabled:hover {
+    box-shadow: none !important;
+}
+
+/* 平台标签更新 */
+.platform-tag {
+    background: rgba(102, 126, 234, 0.1);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    margin-right: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.platform-tag:hover {
+    background: rgba(102, 126, 234, 0.2);
+    color: var(--primary-color);
+}
+
+/* 上传进度条样式 */
+#uploadProgressBar {
+    height: 8px;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+#uploadProgressBar .progress-bar {
+    background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
+    transition: width 0.3s ease;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .upload-area {
+        min-height: 150px;
+        padding: 1.5rem;
+    }
+    
+    .upload-buttons {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .upload-content h5 {
+        font-size: 1.1rem;
+    }
+    
+    .upload-content p {
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .upload-area {
+        min-height: 120px;
+        padding: 1rem;
+    }
+    
+    .file-info .alert {
+        padding: 0.5rem 0.75rem;
+    }
+    
+    .file-info .alert i {
+        display: none;
+    }
+}

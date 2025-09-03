@@ -56,16 +56,17 @@ class AudioExtractor:
                     output_path,
                     acodec='pcm_s16le',  # WAV格式
                     ar=self.sample_rate,  # 采样率
-                    ac=1,  # 单声道
-                    y=True  # 覆盖已存在的文件
+                    ac=1  # 单声道
                 )
-                .run(quiet=True, overwrite_output=True)
+                .run(overwrite_output=True)  # 移除y=True，使用overwrite_output=True代替
             )
             
             return output_path
             
         except ffmpeg.Error as e:
-            raise Exception(f"音频提取失败: {e}")
+            # 提供更详细的错误信息
+            stderr_output = e.stderr.decode('utf-8') if e.stderr else 'No stderr output'
+            raise Exception(f"音频提取失败: ffmpeg error (see stderr output for detail)\nStderr: {stderr_output}")
     
     def convert_audio_format(self, input_path: str, output_path: str, 
                            target_format: str = 'wav', 

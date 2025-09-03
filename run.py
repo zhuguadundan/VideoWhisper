@@ -51,8 +51,9 @@ if __name__ == '__main__':
         # 等待HTTPS服务器启动
         time.sleep(2)
         
-        # 在主线程中启动HTTP服务器
-        run_http_server(app, http_host, http_port)
+        # 在主线程中启动HTTP服务器（启用debug模式以显示详细日志）
+        print("启用详细日志模式")
+        app.run(host=http_host, port=http_port, debug=True)
     else:
         # 仅HTTP模式
         print(f"启动HTTP服务器: http://{http_host}:{http_port}")

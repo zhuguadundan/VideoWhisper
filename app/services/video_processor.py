@@ -6,11 +6,12 @@ import re
 import time
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from app.models.data_models import ProcessingTask, VideoInfo, TranscriptionResult, TranscriptionSegment
+from app.models.data_models import ProcessingTask, VideoInfo, TranscriptionResult, TranscriptionSegment, UploadTask
 from app.services.video_downloader import VideoDownloader
 from app.services.audio_extractor import AudioExtractor
 from app.services.speech_to_text import SpeechToText
 from app.services.text_processor import TextProcessor
+from app.services.file_uploader import FileUploader
 from app.config.settings import Config
 
 class VideoProcessor:
@@ -40,6 +41,7 @@ class VideoProcessor:
         self.audio_extractor = AudioExtractor()
         self.speech_to_text = SpeechToText()
         self.text_processor = TextProcessor()
+        self.file_uploader = FileUploader()
         
         # 存储处理任务
         self.tasks: Dict[str, ProcessingTask] = {}
@@ -81,6 +83,52 @@ class VideoProcessor:
         self.tasks[task_id] = task
         self.save_tasks_to_disk()
         return task_id
+    
+    def create_upload_task(self, original_filename: str, file_size: int, 
+                         file_type: str, mime_type: str) -> str:
+        """创建文件上传任务"""
+        upload_task = self.file_uploader.create_upload_task(
+            original_filename=original_filename,
+            file_size=file_size,
+            file_type=file_type,
+            mime_type=mime_type
+        )
+        
+        self.tasks[upload_task.id] = upload_task
+        self.save_tasks_to_disk()
+        return upload_task.id
+    
+    def update_upload_progress(self, task_id: str, progress: int, 
+                            status: str = "uploading", error_message: str = ""):
+        """更新上传进度"""
+        task = self.get_task(task_id)
+        if task and isinstance(task, UploadTask):
+            task.upload_progress = progress
+            task.upload_status = status
+            if error_message:
+                task.upload_error_message = error_message
+            self.save_tasks_to_disk()
+    
+    def complete_upload_task(self, task_id: str, file_path: str, 
+                           file_duration: float = 0):
+        """完成上传任务，设置文件路径"""
+        task = self.get_task(task_id)
+        if task and isinstance(task, UploadTask):
+            task.upload_status = "completed"
+            task.upload_progress = 100
+            task.upload_time = datetime.now()
+            task.audio_file_path = file_path
+            task.file_duration = file_duration
+            self.save_tasks_to_disk()
+    
+    def fail_upload_task(self, task_id: str, error_message: str):
+        """标记上传任务为失败"""
+        task = self.get_task(task_id)
+        if task and isinstance(task, UploadTask):
+            task.upload_status = "failed"
+            task.upload_progress = 0
+            task.upload_error_message = error_message
+            self.save_tasks_to_disk()
     
     def get_task(self, task_id: str) -> Optional[ProcessingTask]:
         """获取任务"""
@@ -443,6 +491,371 @@ class VideoProcessor:
             
             # 清理临时文件 - 智能保留最近3次任务的文件
             self._smart_cleanup_temp_files(task_id, audio_path)
+            
+            print(f"[{task_id}] 处理完成!")
+            
+        except Exception as e:
+            task.status = "failed"
+            task.error_message = str(e)
+            print(f"[{task_id}] 处理失败: {e}")
+        
+        # 保存任务状态到磁盘
+        self.save_tasks_to_disk()
+        return task
+    
+    def process_upload(self, task_id: str, llm_provider: str = None, api_config: dict = None) -> ProcessingTask:
+        """处理上传的文件的完整流程"""
+        print(f"[{task_id}] 开始process_upload处理")
+        # 开始处理上传的文件
+        
+        task = self.get_task(task_id)
+        if not task:
+            raise ValueError(f"任务不存在: {task_id}")
+        
+        print(f"[{task_id}] 获取到任务对象: {type(task).__name__}")
+        
+        if not isinstance(task, UploadTask):
+            raise ValueError(f"不是上传任务: {task_id}")
+        
+        print(f"[{task_id}] 任务状态: status={task.status}, upload_status={task.upload_status}")
+        print(f"[{task_id}] 文件信息: audio_file_path={task.audio_file_path}, file_type={task.file_type}, need_audio_extraction={task.need_audio_extraction}")
+        
+        try:
+            # 如果传入了api_config，临时设置配置
+            if api_config:
+                print(f"[{task_id}] 使用前端传递的API配置")
+                # 临时更新speech_to_text和text_processor的配置
+                if hasattr(self.speech_to_text, 'set_runtime_config'):
+                    self.speech_to_text.set_runtime_config(api_config.get('siliconflow', {}))
+                if hasattr(self.text_processor, 'set_runtime_config'):
+                    self.text_processor.set_runtime_config(api_config.get('text_processor', {}))
+            
+            # 检查文本处理器是否有可用的提供商
+            available_providers = self.text_processor.get_available_providers()
+            if not available_providers:
+                task.status = "failed"
+                task.error_message = "没有可用的AI文本处理服务提供商，请先在设置页面配置API密钥"
+                self.save_tasks_to_disk()
+                return task
+            
+            # 如果指定的provider不可用，使用默认provider
+            if not llm_provider or not self.text_processor.is_provider_available(llm_provider):
+                llm_provider = self.text_processor.get_default_provider()
+                print(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
+            else:
+                print(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
+            
+            task.status = "processing"
+            task.progress = 0
+            task.progress_stage = "文件预处理"
+            task.progress_detail = "正在分析上传的文件..."
+            self.save_tasks_to_disk()
+            
+            # 获取文件信息
+            print(f"[{task_id}] 获取文件信息...")
+            file_info = self.file_uploader.get_file_info_from_path(task.audio_file_path)
+            
+            # 创建视频信息对象
+            task.video_info = VideoInfo(
+                title=task.original_filename,
+                url=f"file://{task.audio_file_path}",
+                duration=file_info.get('duration', 0),
+                uploader="本地文件"
+            )
+            task.progress = 10
+            task.progress_detail = f"文件大小: {file_info.get('file_size', 0) // (1024*1024)}MB"
+            task.estimated_time = int(file_info.get('duration', 300) * 0.3)  # 粗略估计处理时间
+            
+            # 如果是视频文件，需要先提取音频
+            if task.need_audio_extraction:
+                print(f"[{task_id}] 提取视频音频...")
+                task.progress_stage = "音频提取"
+                task.progress_detail = "正在从视频中提取音频..."
+                self.save_tasks_to_disk()
+                
+                try:
+                    audio_path = self.audio_extractor.extract_audio_from_video(task.audio_file_path)
+                    # 删除原始视频文件以节省空间
+                    try:
+                        os.remove(task.audio_file_path)
+                        print(f"[{task_id}] 已删除原始视频文件")
+                    except Exception as delete_error:
+                        print(f"[{task_id}] 删除原始视频文件失败: {delete_error}")
+                    
+                    task.audio_file_path = audio_path
+                    task.progress = 25
+                except Exception as extract_error:
+                    raise Exception(f"音频提取失败: {extract_error}")
+            else:
+                # 音频文件，直接使用
+                print(f"[{task_id}] 使用音频文件...")
+                task.progress = 25
+                task.progress_detail = "音频文件准备就绪"
+            
+            # 从这里开始，复用现有的音频处理流程
+            # 获取音频信息
+            try:
+                print(f"[{task_id}] 开始获取音频信息: {task.audio_file_path}")
+                audio_info = self.audio_extractor.get_audio_info(task.audio_file_path)
+                print(f"[{task_id}] 音频信息: {audio_info}")
+            except Exception as audio_info_error:
+                print(f"[ERROR] 获取音频信息失败: {audio_info_error}")
+                print(f"[ERROR] 错误类型: {type(audio_info_error)}")
+                raise Exception(f"获取音频信息失败: {audio_info_error}")
+            
+            # 处理长音频（分段）- 复用现有逻辑
+            if audio_info['duration'] > 300:  # 超过5分钟分段处理
+                try:
+                    print(f"[{task_id}] 音频超过5分钟，开始分段处理")
+                    segments = self.audio_extractor.split_audio_by_duration(task.audio_file_path, 300)
+                    print(f"[{task_id}] 音频分段完成，共 {len(segments)} 个片段")
+                    task.progress = 40
+                    task.total_segments = len(segments)
+                    task.progress_detail = f"音频已分割为 {len(segments)} 个片段"
+                    self.save_tasks_to_disk()
+                except Exception as split_error:
+                    print(f"[ERROR] 音频分段失败: {split_error}")
+                    print(f"[ERROR] 错误类型: {type(split_error)}")
+                    raise Exception(f"音频分段失败: {split_error}")
+                
+                # 语音转文字 - 复用现有逻辑
+                print(f"[{task_id}] 语音转文字...")
+                task.progress_stage = "语音转文字"
+                transcription_results = []
+                
+                consecutive_failures = 0
+                max_consecutive_failures = 3
+                
+                for i, segment in enumerate(segments):
+                    task.processed_segments = i + 1
+                    task.progress_detail = f"正在处理第 {i+1}/{len(segments)} 个音频片段..."
+                    progress_increment = (60 - 40) * (i + 1) / len(segments)
+                    task.progress = 40 + int(progress_increment)
+                    self.save_tasks_to_disk()
+                    
+                    try:
+                        segment_result = self.speech_to_text.transcribe_audio(segment['path'])
+                        
+                        text = segment_result.get('text', '').strip()
+                        if not text or len(text) < 3:
+                            raise Exception(f"转录文本无效: 长度={len(text)}")
+                        
+                        transcription_results.append({
+                            'segment_index': segment['index'],
+                            'text': text,
+                            'segments': segment_result.get('segments', []),
+                            'start_time': segment['start_time'],
+                            'end_time': segment['end_time'],
+                            'language': segment_result.get('language', 'unknown')
+                        })
+                        print(f"[{task_id}] 片段 {i+1} 处理成功: 文本长度={len(text)}")
+                        
+                        consecutive_failures = 0
+                        time.sleep(1)
+                        
+                    except Exception as e:
+                        consecutive_failures += 1
+                        print(f"[{task_id}] 片段 {i+1} 处理失败: {e} (连续失败次数: {consecutive_failures})")
+                        
+                        transcription_results.append({
+                            'segment_index': segment['index'],
+                            'text': '',
+                            'segments': [],
+                            'start_time': segment['start_time'],
+                            'end_time': segment['end_time'],
+                            'error': str(e)
+                        })
+                        
+                        if consecutive_failures >= max_consecutive_failures:
+                            print(f"[{task_id}] 连续失败次数达到上限 ({max_consecutive_failures})，停止处理")
+                            remaining_segments = len(segments) - (i + 1)
+                            if remaining_segments > 0:
+                                print(f"[{task_id}] 跳过剩余 {remaining_segments} 个片段")
+                            break
+                        
+                        time.sleep(2)
+                
+                task.progress = 60
+                
+                # 合并结果 - 复用现有逻辑
+                transcription_results.sort(key=lambda x: x.get('segment_index', 0))
+                
+                all_segments = []
+                full_text = ""
+                successful_segments = 0
+                failed_segments = 0
+                processed_segments_count = len(transcription_results)
+                
+                for result in transcription_results:
+                    if not result.get('error'):
+                        text = result.get('text', '').strip()
+                        if text and len(text) >= 3:
+                            successful_segments += 1
+                            full_text += text + " "
+                        else:
+                            print(f"[{task_id}] 警告: 片段 {result.get('segment_index', '未知')} 返回无效文本")
+                        
+                        for seg in result.get('segments', []):
+                            all_segments.append(TranscriptionSegment(
+                                text=seg.get('text', ''),
+                                confidence=seg.get('confidence', 0.0)
+                            ))
+                    else:
+                        failed_segments += 1
+                        print(f"[{task_id}] 片段 {result.get('segment_index', '未知')} 处理失败: {result.get('error', '未知错误')}")
+                
+                print(f"[{task_id}] 处理统计: 成功 {successful_segments}/{processed_segments_count} 个片段, 失败 {failed_segments} 个片段")
+                
+                if processed_segments_count < len(segments):
+                    remaining_segments = len(segments) - processed_segments_count
+                    print(f"[{task_id}] 跳过未处理片段: {remaining_segments} 个 (因连续失败而提前终止)")
+                
+                if successful_segments == 0:
+                    raise Exception(f"所有音频片段处理失败，共处理 {processed_segments_count} 个片段")
+                
+                success_rate = successful_segments / processed_segments_count if processed_segments_count > 0 else 0
+                if success_rate < 0.8:
+                    print(f"[{task_id}] 警告: 片段成功率较低 ({success_rate:.1%}), 可能会影响转录完整性")
+                
+                overall_success_rate = successful_segments / len(segments)
+                if overall_success_rate < 0.5:
+                    print(f"[{task_id}] 严重警告: 整体成功率过低 ({overall_success_rate:.1%}), 建议检查网络连接和API配置")
+                
+                # 设置语言信息
+                language = 'unknown'
+                for result in transcription_results:
+                    if not result.get('error') and result.get('language'):
+                        language = result['language']
+                        break
+            else:
+                # 直接处理短音频 - 复用现有逻辑
+                task.progress_stage = "语音转文字"
+                task.progress_detail = "处理短音频文件..."
+                task.total_segments = 1
+                task.processed_segments = 1
+                self.save_tasks_to_disk()
+                
+                max_retries = 3
+                transcription_result = None
+                
+                for retry in range(max_retries):
+                    try:
+                        transcription_result = self.speech_to_text.transcribe_audio(task.audio_file_path)
+                        
+                        text = transcription_result.get('text', '').strip()
+                        if not text or len(text) < 3:
+                            if retry < max_retries - 1:
+                                print(f"[{task_id}] 短音频返回无效文本（长度={len(text)}），第 {retry+1} 次重试...")
+                                time.sleep(2)
+                                continue
+                            else:
+                                raise Exception(f"短音频处理重试{max_retries}次后仍返回无效文本")
+                        
+                        print(f"[{task_id}] 短音频处理成功: 文本长度={len(text)}")
+                        break
+                        
+                    except Exception as e:
+                        if retry < max_retries - 1:
+                            print(f"[{task_id}] 短音频处理失败: {e}，第 {retry+1} 次重试...")
+                            time.sleep(2)
+                        else:
+                            raise Exception(f"短音频处理重试{max_retries}次后仍然失败: {e}")
+                
+                if not transcription_result or not transcription_result.get('text'):
+                    raise Exception("短音频处理失败：无法获取转录文本")
+                
+                full_text = transcription_result['text'].strip()
+                all_segments = [
+                    TranscriptionSegment(
+                        text=full_text,
+                        confidence=0.8
+                    )
+                ]
+                language = transcription_result.get('language', 'unknown')
+                
+                print(f"[{task_id}] 短音频处理完成: 文本长度={len(full_text)}")
+                
+                time.sleep(1)
+            
+            # 创建转录结果对象
+            print(f"[{task_id}] 合并转录结果: 文本长度={len(full_text)}, 片段数={len(all_segments)}")
+            task.transcription = TranscriptionResult(
+                segments=all_segments,
+                full_text=full_text.strip(),
+                language=language,
+                duration=audio_info['duration']
+            )
+            task.progress = 60
+            
+            # 从这里开始，完全复用现有的文本处理流程
+            # 生成格式化逐字稿
+            print(f"[{task_id}] 生成逐字稿...")
+            task.progress_stage = "生成逐字稿"
+            task.progress_detail = "使用AI优化文本格式..."
+            task.ai_start_time = time.time()
+            self.save_tasks_to_disk()
+            
+            start_time = time.time()
+            task.transcript = self.text_processor.generate_transcript(
+                task.transcription.full_text, 
+                provider=llm_provider
+            )
+            ai_response_time = time.time() - start_time
+            task.ai_response_times = getattr(task, 'ai_response_times', {})
+            task.ai_response_times['transcript'] = ai_response_time
+            task.progress = 70
+            task.progress_detail = f"逐字稿生成完成 (耗时 {ai_response_time:.1f}s)"
+            
+            task.transcript_ready = True
+            self.save_tasks_to_disk()
+            
+            # 生成总结报告
+            print(f"[{task_id}] 生成总结报告...")
+            task.progress_stage = "生成总结报告"
+            task.progress_detail = f"AI正在分析内容并生成摘要... (使用 {llm_provider})"
+            self.save_tasks_to_disk()
+            
+            start_time = time.time()
+            task.summary = self.text_processor.generate_summary(
+                task.transcript,
+                provider=llm_provider
+            )
+            ai_response_time = time.time() - start_time
+            task.ai_response_times['summary'] = ai_response_time
+            task.progress = 85
+            task.progress_detail = f"摘要生成完成 (耗时 {ai_response_time:.1f}s)"
+            self.save_tasks_to_disk()
+            
+            # 内容分析
+            print(f"[{task_id}] 内容分析...")
+            task.progress_stage = "内容分析"
+            task.progress_detail = f"提取关键信息和主题... (使用 {llm_provider})"
+            self.save_tasks_to_disk()
+            
+            start_time = time.time()
+            task.analysis = self.text_processor.analyze_content(
+                task.transcript,
+                provider=llm_provider
+            )
+            ai_response_time = time.time() - start_time
+            task.ai_response_times['analysis'] = ai_response_time
+            task.progress = 95
+            task.progress_detail = f"内容分析完成 (耗时 {ai_response_time:.1f}s)"
+            self.save_tasks_to_disk()
+            
+            # 保存结果
+            task.progress_stage = "保存结果"
+            task.progress_detail = "生成输出文件..."
+            self.save_tasks_to_disk()
+            self._save_results(task)
+            task.progress = 100
+            task.status = "completed"
+            task.progress_stage = "完成"
+            task.progress_detail = "处理完成！"
+            task.estimated_time = 0
+            
+            # 清理临时文件
+            self._smart_cleanup_temp_files(task_id, task.audio_file_path)
             
             print(f"[{task_id}] 处理完成!")
             

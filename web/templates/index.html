@@ -39,7 +39,7 @@
         <main class="container py-5">
             <!-- 输入区域 -->
             <div class="row justify-content-center mb-5">
-                <div class="col-xl-10">
+                <div class="col-xl-10 mx-auto">
                     <div class="card glass-card">
                         <div class="card-header border-0 bg-transparent">
                             <div class="d-flex align-items-center">
@@ -53,54 +53,153 @@
                             </div>
                         </div>
                         <div class="card-body">
-                            <form id="processForm">
-                                <div class="row g-4">
-                                    <div class="col-lg-8">
-                                        <div class="form-floating">
-                                            <input type="url" class="form-control form-control-modern" id="videoUrl" 
-                                                   placeholder="请输入YouTube、Bilibili等视频链接" required>
-                                            <label for="videoUrl">
-                                                <i class="fas fa-link me-2"></i>视频链接
-                                            </label>
-                                        </div>
-                                        <div class="form-text mt-2">
-                                            <div class="platform-tags">
-                                                <span class="platform-tag">YouTube</span>
-                                                <span class="platform-tag">Bilibili</span>
-                                                <span class="platform-tag">更多平台</span>
+                            <!-- 输入方式选择标签 -->
+                            <ul class="nav nav-tabs mb-4" id="inputMethodTabs" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" id="url-tab" data-bs-toggle="tab" 
+                                            data-bs-target="#url-pane" type="button" role="tab">
+                                        <i class="fas fa-link me-2"></i>URL输入
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="upload-tab" data-bs-toggle="tab" 
+                                            data-bs-target="#upload-pane" type="button" role="tab">
+                                        <i class="fas fa-upload me-2"></i>文件上传
+                                    </button>
+                                </li>
+                            </ul>
+
+                            <!-- 标签内容 -->
+                            <div class="tab-content" id="inputMethodTabsContent">
+                                <!-- URL输入标签页 -->
+                                <div class="tab-pane fade show active" id="url-pane" role="tabpanel">
+                                    <form id="processUrlForm">
+                                        <div class="row g-4">
+                                            <div class="col-lg-8">
+                                                <div class="form-floating">
+                                                    <input type="url" class="form-control form-control-modern" id="videoUrl" 
+                                                           placeholder="请输入YouTube、Bilibili等视频链接" required>
+                                                    <label for="videoUrl">
+                                                        <i class="fas fa-link me-2"></i>视频链接
+                                                    </label>
+                                                </div>
+                                                <div class="form-text mt-2">
+                                                    <div class="platform-tags">
+                                                        <span class="platform-tag">YouTube</span>
+                                                        <span class="platform-tag">Bilibili</span>
+                                                        <span class="platform-tag">更多平台</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-lg-4">
+                                                <div class="form-floating">
+                                                    <select class="form-select form-control-modern" id="llmProvider">
+                                                        <option value="siliconflow" selected>硅基流动 (默认)</option>
+                                                        <option value="openai">OpenAI GPT-4</option>
+                                                        <option value="gemini">Google Gemini</option>
+                                                    </select>
+                                                    <label for="llmProvider">
+                                                        <i class="fas fa-brain me-2"></i>AI模型
+                                                    </label>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                    <div class="col-lg-4">
-                                        <div class="form-floating">
-                                            <select class="form-select form-control-modern" id="llmProvider">
-                                                <option value="siliconflow" selected>硅基流动 (默认)</option>
-                                                <option value="openai">OpenAI GPT-4</option>
-                                                <option value="gemini">Google Gemini</option>
-                                            </select>
-                                            <label for="llmProvider">
-                                                <i class="fas fa-brain me-2"></i>AI模型
-                                            </label>
+                                        
+                                        <div class="text-center mt-4">
+                                            <button type="submit" class="btn btn-primary btn-modern bounce-in" id="submitUrlBtn">
+                                                <i class="fas fa-sparkles me-2"></i>
+                                                开始智能处理（仅音频）
+                                            </button>
                                         </div>
-                                    </div>
+                                    </form>
                                 </div>
-                                
-                                <div class="text-center mt-4">
-                                    <button type="submit" class="btn btn-primary btn-modern bounce-in" id="submitBtn">
-                                        <i class="fas fa-sparkles me-2"></i>
-                                        开始智能处理（仅音频）
-                                    </button>
+
+                                <!-- 文件上传标签页 -->
+                                <div class="tab-pane fade" id="upload-pane" role="tabpanel">
+                                    <form id="processUploadForm">
+                                        <div class="row g-4">
+                                            <div class="col-lg-8">
+                                                <!-- 文件拖拽上传区域 -->
+                                                <div class="upload-area" id="uploadArea">
+                                                    <div class="upload-content" id="uploadContent">
+                                                        <i class="fas fa-cloud-upload-alt fa-3x mb-3 text-muted"></i>
+                                                        <h5 class="text-muted mb-2">拖拽文件到此处</h5>
+                                                        <p class="text-muted mb-3">或者</p>
+                                                        <div class="upload-buttons">
+                                                            <button type="button" class="btn btn-outline-primary me-2" id="selectFileBtn">
+                                                                <i class="fas fa-folder-open me-2"></i>选择文件
+                                                            </button>
+                                                            <button type="button" class="btn btn-outline-secondary" id="clearFileBtn" style="display: none;">
+                                                                <i class="fas fa-times me-2"></i>清除
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="upload-processing" id="uploadProcessing" style="display: none;">
+                                                        <div class="spinner-border text-primary mb-2" role="status">
+                                                            <span class="visually-hidden">Loading...</span>
+                                                        </div>
+                                                        <h6 class="text-muted">正在上传文件...</h6>
+                                                        <div class="progress mt-3">
+                                                            <div class="progress-bar" id="uploadProgressBar" role="progressbar" 
+                                                                 style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                                            </div>
+                                                        </div>
+                                                        <small class="upload-info text-muted" id="uploadInfo">0%</small>
+                                                    </div>
+                                                </div>
+                                                
+                                                <!-- 隐藏的文件输入 -->
+                                                <input type="file" id="fileInput" accept=".mp4,.avi,.mov,.mkv,.webm,.flv,.mp3,.wav,.aac,.m4a,.ogg" style="display: none;">
+                                                
+                                                <!-- 文件信息显示 -->
+                                                <div class="file-info mt-3" id="fileInfo" style="display: none;">
+                                                    <div class="alert alert-info d-flex align-items-center">
+                                                        <i class="fas fa-info-circle me-2"></i>
+                                                        <div>
+                                                            <strong>已选择文件：</strong>
+                                                            <span id="selectedFileName"></span>
+                                                            <br>
+                                                            <small>
+                                                                大小: <span id="selectedFileSize"></span> | 
+                                                                类型: <span id="selectedFileType"></span>
+                                                            </small>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-lg-4">
+                                                <div class="form-floating">
+                                                    <select class="form-select form-control-modern" id="uploadLlmProvider">
+                                                        <option value="siliconflow" selected>硅基流动 (默认)</option>
+                                                        <option value="openai">OpenAI GPT-4</option>
+                                                        <option value="gemini">Google Gemini</option>
+                                                    </select>
+                                                    <label for="uploadLlmProvider">
+                                                        <i class="fas fa-brain me-2"></i>AI模型
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="text-center mt-4">
+                                            <button type="submit" class="btn btn-primary btn-modern bounce-in" id="submitUploadBtn" disabled>
+                                                <i class="fas fa-sparkles me-2"></i>
+                                                开始智能处理
+                                            </button>
+                                        </div>
+                                    </form>
                                 </div>
-                            </form>
+                            </div>
+                        </div>
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- 处理状态区域 -->
-            <div class="row mb-4 fade-in" id="statusArea" style="display: none;">
-                <div class="col-12">
-                    <div class="card">
+            <div class="row justify-content-center mb-4 fade-in" id="statusArea" style="display: none;">
+                <div class="col-xl-10 mx-auto">
+                    <div class="card glass-card">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="card-title mb-0">
                                 <i class="fas fa-cog fa-spin me-2"></i>
@@ -145,9 +244,9 @@
             </div>
 
             <!-- 结果区域 -->
-            <div class="row slide-in" id="resultArea" style="display: none;">
-                <div class="col-12">
-                    <div class="card">
+            <div class="row justify-content-center slide-in" id="resultArea" style="display: none;">
+                <div class="col-xl-10 mx-auto">
+                    <div class="card glass-card">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="card-title mb-0">
                                 <i class="fas fa-check-circle text-success me-2"></i>
@@ -164,7 +263,7 @@
                                     <i class="fas fa-download me-1"></i>下载总结报告
                                 </button>
                             </div>
-                                                    </div>
+                        </div>
                         <div class="card-body">
                             <!-- 导航标签 -->
                             <ul class="nav nav-tabs" id="resultTabs" role="tablist">
@@ -298,7 +397,7 @@
 
             <!-- 历史任务区域 -->
             <div class="row justify-content-center mt-5">
-                <div class="col-xl-10">
+                <div class="col-xl-10 mx-auto">
                     <div class="card glass-card">
                         <div class="card-header border-0 bg-transparent">
                             <div class="d-flex justify-content-between align-items-center">
@@ -311,9 +410,14 @@
                                         <p class="card-subtitle mb-0">查看您之前处理的视频任务</p>
                                     </div>
                                 </div>
-                                <button type="button" class="btn btn-outline-primary btn-modern" id="refreshTasks">
-                                    <i class="fas fa-sync-alt me-2"></i>刷新列表
-                                </button>
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-outline-danger btn-modern" id="stopAllTasksBtn">
+                                        <i class="fas fa-stop me-2"></i>停止所有任务
+                                    </button>
+                                    <button type="button" class="btn btn-outline-primary btn-modern" id="refreshTasks">
+                                        <i class="fas fa-sync-alt me-2"></i>刷新列表
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         <div class="card-body">

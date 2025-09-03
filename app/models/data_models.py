@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 from datetime import datetime
 import json
 
@@ -47,9 +47,9 @@ class TranscriptionResult:
 
 @dataclass
 class ProcessingTask:
-    """处理任务 - 简化版，仅支持音频处理"""
+    """处理任务 - 基础任务类，支持URL和文件上传"""
     id: str
-    video_url: str
+    video_url: str = ""  # 可以为空，如果是文件上传任务
     status: str = "pending"  # pending, processing, completed, failed
     created_at: datetime = field(default_factory=datetime.now)
     # 音频文件路径
@@ -94,3 +94,47 @@ class ProcessingTask:
             'processed_segments': self.processed_segments,
             'total_segments': self.total_segments
         }
+
+
+@dataclass
+class UploadTask(ProcessingTask):
+    """文件上传任务 - 继承自ProcessingTask"""
+    file_type: Literal["video", "audio"] = "audio"  # 文件类型
+    original_filename: str = ""  # 原始文件名
+    file_size: int = 0  # 文件大小（字节）
+    file_duration: float = 0  # 音频/视频时长
+    upload_time: Optional[datetime] = None  # 上传完成时间
+    need_audio_extraction: bool = False  # 是否需要音频提取（仅视频文件）
+    upload_progress: int = 0  # 上传进度 (0-100)
+    upload_status: str = "pending"  # pending, uploading, completed, failed
+    upload_error_message: str = ""  # 上传错误信息
+    
+    
+
+@dataclass
+class UploadTask(ProcessingTask):
+    """文件上传任务 - 继承自ProcessingTask"""
+    file_type: Literal["video", "audio"] = "audio"  # 文件类型
+    original_filename: str = ""  # 原始文件名
+    file_size: int = 0  # 文件大小（字节）
+    file_duration: float = 0  # 音频/视频时长
+    upload_time: Optional[datetime] = None  # 上传完成时间
+    need_audio_extraction: bool = False  # 是否需要音频提取（仅视频文件）
+    upload_progress: int = 0  # 上传进度 (0-100)
+    upload_status: str = "pending"  # pending, uploading, completed, failed
+    upload_error_message: str = ""  # 上传错误信息
+    
+    def to_dict(self) -> Dict[str, Any]:
+        data = super().to_dict()
+        data.update({
+            'file_type': self.file_type,
+            'original_filename': self.original_filename,
+            'file_size': self.file_size,
+            'file_duration': self.file_duration,
+            'upload_time': self.upload_time.isoformat() if self.upload_time else None,
+            'need_audio_extraction': self.need_audio_extraction,
+            'upload_progress': self.upload_progress,
+            'upload_status': self.upload_status,
+            'upload_error_message': self.upload_error_message
+        })
+        return data

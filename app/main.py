@@ -8,6 +8,8 @@ from app.services.video_processor import VideoProcessor
 from app.services.video_downloader import VideoDownloader
 from app.services.speech_to_text import SpeechToText
 from app.services.text_processor import TextProcessor
+from app.services.file_uploader import FileUploader
+from app.models.data_models import UploadTask
 from app.utils.error_handler import api_error_handler, safe_json_response
 import logging
 
@@ -24,6 +26,7 @@ except ImportError:
 main_bp = Blueprint('main', __name__)
 video_processor = VideoProcessor()
 video_downloader = VideoDownloader()
+file_uploader = FileUploader()
 
 @main_bp.route('/')
 def index():
@@ -87,6 +90,249 @@ def get_video_info():
     except Exception as e:
         logging.error(f"获取视频信息失败: {str(e)}")
         raise Exception(f"获取视频信息失败: {str(e)}")
+
+@main_bp.route('/api/upload', methods=['POST'])
+@api_error_handler
+def upload_file():
+    """文件上传端点"""
+    try:
+        # 检查是否有文件
+        if 'file' not in request.files:
+            return safe_json_response(
+                success=False,
+                error="请选择要上传的文件"
+            )
+        
+        file = request.files['file']
+        if file.filename == '':
+            return safe_json_response(
+                success=False,
+                error="请选择要上传的文件"
+            )
+        
+        # 获取文件信息
+        original_filename = file.filename
+        file_size = 0
+        file_content = b''
+        
+        # 计算文件大小和读取内容
+        file.stream.seek(0, 2)  # 移动到文件末尾
+        file_size = file.stream.tell()
+        file.stream.seek(0)  # 回到文件开头
+        
+        # 获取MIME类型
+        mime_type = file.mimetype or 'application/octet-stream'
+        
+        logging.info(f"文件上传请求: filename={original_filename}, size={file_size}, mime_type={mime_type}")
+        
+        # 验证文件
+        try:
+            file_info = file_uploader._get_file_info(original_filename, file_size)
+            is_valid, message = file_uploader._validate_file(original_filename, file_size, mime_type)
+            if not is_valid:
+                return safe_json_response(
+                    success=False,
+                    error=message
+                )
+        except Exception as e:
+            return safe_json_response(
+                success=False,
+                error=f"文件验证失败: {str(e)}"
+            )
+        
+        # 创建上传任务
+        try:
+            task_id = video_processor.create_upload_task(
+                original_filename=original_filename,
+                file_size=file_size,
+                file_type=file_info['file_type'],
+                mime_type=mime_type
+            )
+        except Exception as e:
+            return safe_json_response(
+                success=False,
+                error=f"创建上传任务失败: {str(e)}"
+            )
+        
+        # 保存文件
+        try:
+            upload_result = file_uploader.save_uploaded_file(
+                file_obj=file,
+                original_filename=original_filename,
+                file_size=file_size
+            )
+            
+            if not upload_result['success']:
+                # 标记任务为失败
+                video_processor.fail_upload_task(task_id, upload_result['error'])
+                return safe_json_response(
+                    success=False,
+                    error=upload_result['error']
+                )
+            
+            # 完成上传任务
+            video_processor.complete_upload_task(
+                task_id=task_id,
+                file_path=upload_result['file_path'],
+                file_duration=upload_result.get('file_duration', 0)
+            )
+            
+            return safe_json_response(
+                success=True,
+                data={
+                    'task_id': task_id,
+                    'file_info': {
+                        'original_filename': original_filename,
+                        'file_size': file_size,
+                        'file_type': file_info['file_type'],
+                        'mime_type': mime_type,
+                        'need_audio_extraction': file_info['need_audio_extraction'],
+                        'file_path': upload_result['file_path']
+                    }
+                },
+                message='文件上传成功'
+            )
+            
+        except Exception as e:
+            # 标记任务为失败
+            video_processor.fail_upload_task(task_id, str(e))
+            return safe_json_response(
+                success=False,
+                error=f"文件上传失败: {str(e)}"
+            )
+    
+    except Exception as e:
+        logging.error(f"文件上传端点异常: {str(e)}")
+        return safe_json_response(
+            success=False,
+            error=f"服务器错误: {str(e)}"
+        )
+
+@main_bp.route('/api/upload/<task_id>/progress', methods=['GET'])
+@api_error_handler
+def get_upload_progress(task_id):
+    """获取上传进度"""
+    try:
+        task = video_processor.get_task(task_id)
+        if not task:
+            return safe_json_response(
+                success=False,
+                error="任务不存在"
+            )
+        
+        if not isinstance(task, UploadTask):
+            return safe_json_response(
+                success=False,
+                error="不是上传任务"
+            )
+        
+        return safe_json_response(
+            success=True,
+            data={
+                'task_id': task_id,
+                'upload_progress': task.upload_progress,
+                'upload_status': task.upload_status,
+                'upload_error_message': task.upload_error_message,
+                'file_size': task.file_size,
+                'file_type': task.file_type,
+                'original_filename': task.original_filename
+            }
+        )
+    
+    except Exception as e:
+        logging.error(f"获取上传进度异常: {str(e)}")
+        return safe_json_response(
+            success=False,
+            error=f"服务器错误: {str(e)}"
+        )
+
+@main_bp.route('/api/process-upload', methods=['POST'])
+@api_error_handler
+def process_upload():
+    """处理上传的文件"""
+    data = request.get_json()
+    if not data:
+        raise ValueError("请求数据不能为空")
+    
+    task_id = data.get('task_id', '').strip()
+    if not task_id:
+        raise ValueError("请提供任务ID")
+    
+    llm_provider = data.get('llm_provider', 'openai')
+    api_config = data.get('api_config', {})
+    
+    logging.info(f"process_upload请求: task_id={task_id}, llm_provider={llm_provider}")
+    
+    # 获取任务
+    task = video_processor.get_task(task_id)
+    if not task:
+        logging.error(f"任务不存在: {task_id}")
+        raise ValueError("任务不存在")
+    
+    logging.info(f"获取到任务: id={task.id}, type={type(task)}, upload_status={task.upload_status}")
+    
+    if not isinstance(task, UploadTask):
+        logging.error(f"不是上传任务: task_id={task_id}, task_type={type(task)}")
+        raise ValueError("不是上传任务")
+    
+    try:
+        upload_status = task.upload_status
+        logging.info(f"任务上传状态: {upload_status}")
+    except AttributeError as e:
+        logging.error(f"UploadTask缺少upload_status属性: task_id={task_id}, error={e}")
+        logging.error(f"UploadTask对象内容: {vars(task)}")
+        raise ValueError(f"任务状态不完整，upload_status属性缺失: {e}")
+    
+    if upload_status != 'completed':
+        logging.error(f"文件上传未完成: task_id={task_id}, upload_status={upload_status}")
+        raise ValueError("文件上传未完成，请等待上传完成后再处理")
+    
+    logging.info(f"开始处理上传文件任务: {task_id}, 文件: {task.original_filename}, audio_file_path={task.audio_file_path}")
+    
+    # 创建处理函数
+    def safe_process_upload():
+        try:
+            logging.info(f"启动处理上传文件线程: {task_id}")
+            video_processor.process_upload(task_id, llm_provider, api_config)
+            logging.info(f"上传文件任务 {task_id} 处理完成")
+        except Exception as e:
+            logging.exception(f"上传文件处理线程异常 [{task_id}]: {e}")
+            # 确保任务状态被正确更新
+            task = video_processor.get_task(task_id)
+            if task:
+                task.status = "failed"
+                task.error_message = f"处理异常: {str(e)}"
+                video_processor.save_tasks_to_disk()
+    
+    # 在后台线程中处理文件
+    thread = threading.Thread(target=safe_process_upload)
+    thread.daemon = True
+    thread.start()
+    logging.info(f"已启动处理线程: {task_id}")
+    
+    return safe_json_response(
+        success=True,
+        data={'task_id': task_id},
+        message='任务已创建，开始处理...'
+    )
+
+@main_bp.route('/api/upload/config', methods=['GET'])
+@api_error_handler
+def get_upload_config():
+    """获取上传配置信息"""
+    try:
+        config = file_uploader.get_upload_config()
+        return safe_json_response(
+            success=True,
+            data=config,
+            message='获取上传配置成功'
+        )
+    except Exception as e:
+        logging.error(f"获取上传配置异常: {str(e)}")
+        return safe_json_response(
+            success=False,
+            error=f"获取上传配置失败: {str(e)}"
+        )
 
 @main_bp.route('/api/process', methods=['POST'])
 @api_error_handler
@@ -184,91 +430,105 @@ def download_file(task_id, file_type):
         output_dir = video_processor.output_dir
         task_dir = os.path.join(output_dir, task_id)
         
-        file_mapping = {
-            'transcript': 'transcript.md',
-            'summary': 'summary.md',
-            'data': 'data.json'
-        }
-        
-        if file_type not in file_mapping:
+        # 动态查找实际的文件名
+        if file_type == 'transcript':
+            # 查找以transcript_开头的.md文件
+            transcript_files = glob.glob(os.path.join(task_dir, 'transcript_*.md'))
+            if not transcript_files:
+                # 如果没找到，尝试查找transcript.md
+                transcript_files = glob.glob(os.path.join(task_dir, 'transcript.md'))
+            if not transcript_files:
+                # 如果还没找到，尝试查找transcript.txt
+                transcript_files = glob.glob(os.path.join(task_dir, 'transcript.txt'))
+            if transcript_files:
+                file_path = transcript_files[0]
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': '逐字稿文件不存在'
+                })
+        elif file_type == 'summary':
+            # 查找以summary_开头的.md文件
+            summary_files = glob.glob(os.path.join(task_dir, 'summary_*.md'))
+            if not summary_files:
+                # 如果没找到，尝试查找summary.md
+                summary_files = glob.glob(os.path.join(task_dir, 'summary.md'))
+            if summary_files:
+                file_path = summary_files[0]
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': '总结报告文件不存在'
+                })
+        elif file_type == 'data':
+            # 查找以data_开头的.json文件
+            data_files = glob.glob(os.path.join(task_dir, 'data_*.json'))
+            if not data_files:
+                # 如果没找到，尝试查找data.json
+                data_files = glob.glob(os.path.join(task_dir, 'data.json'))
+            if data_files:
+                file_path = data_files[0]
+            else:
+                return jsonify({
+                    'success': False,
+                    'message': '数据文件不存在'
+                })
+        else:
             return jsonify({
                 'success': False,
                 'message': '不支持的文件类型'
             })
         
-        file_path = os.path.join(task_dir, file_mapping[file_type])
-        
-        if not os.path.exists(file_path):
-            return jsonify({
-                'success': False,
-                'message': '文件不存在'
-            })
-        
-        # 智能简化文件名格式
+        # 简化文件名格式
         def get_simple_filename(title: str, file_type: str, extension: str) -> str:
             import re
             
+            # 简化标题处理，避免过度复杂化
             if title:
-                # 移除常见的无用词汇
-                noise_words = ['视频', '直播', '录播', '完整版', '高清', 'HD', '4K', '1080P', '合集', '精选', '最新', '官方']
-                clean_title = title
-                
-                # 移除噪音词汇
-                for noise in noise_words:
-                    clean_title = clean_title.replace(noise, '')
-                
-                # 移除特殊字符，只保留中文、英文、数字和常用标点
-                clean_title = re.sub(r'[^\u4e00-\u9fa5\w\s\-\|\(\)\[\]【】（）]', '', clean_title)
+                # 移除文件扩展名（如果标题包含）
+                clean_title = re.sub(r'\.(mp4|avi|mov|mkv|webm|flv|mp3|wav|aac|m4a|ogg)$', '', title, flags=re.IGNORECASE)
+                # 移除特殊字符，保留中文、英文、数字
+                clean_title = re.sub(r'[^\u4e00-\u9fa5\w\s]', '', clean_title)
                 clean_title = clean_title.strip()
                 
-                # 如果标题太长，智能截取
-                if len(clean_title) > 15:
-                    # 尝试从标题中找到关键词
-                    # 按分隔符分割，取最重要的部分
-                    parts = re.split(r'[\-\|\(\)\[\]【】（）]', clean_title)
-                    if parts and len(parts) > 1:
-                        # 过滤空字符串并按长度排序
-                        valid_parts = [p.strip() for p in parts if p.strip()]
-                        if valid_parts:
-                            # 取最长且最有意义的部分
-                            main_part = max(valid_parts, key=len)
-                            if len(main_part) > 10:
-                                clean_title = main_part[:10]
-                            else:
-                                clean_title = main_part
-                        else:
-                            clean_title = clean_title[:10]
-                    else:
-                        # 直接截取前10个字符
-                        clean_title = clean_title[:10]
+                # 限制长度
+                if len(clean_title) > 20:
+                    clean_title = clean_title[:20]
                 
-                # 去除首尾空格和常见分隔符
-                clean_title = clean_title.strip('- |()[]【】（）')
                 short_title = clean_title if clean_title else "视频"
             else:
                 short_title = "视频"
             
             # 根据文件类型生成简短名称
             if file_type == 'transcript':
-                return f"{short_title}_逐字稿.md"
+                return f"{short_title}_逐字稿.{extension}"
             elif file_type == 'summary':
-                return f"{short_title}_总结报告.md"
+                return f"{short_title}_总结报告.{extension}"
             elif file_type == 'data':
                 return f"{short_title}_完整数据.{extension}"
             else:
                 return f"{short_title}_{file_type}.{extension}"
         
-        extension = file_mapping[file_type].split('.')[-1]
+        extension = os.path.splitext(file_path)[1][1:]  # 获取实际文件的扩展名，去掉点号
         download_filename = get_simple_filename(
             task.video_info.title if task.video_info else '', 
             file_type, 
             extension
         )
         
+        # 根据文件扩展名设置正确的MIME类型
+        if extension.lower() == 'md':
+            mimetype = 'text/markdown; charset=utf-8'
+        elif extension.lower() == 'json':
+            mimetype = 'application/json; charset=utf-8'
+        else:
+            mimetype = 'text/plain; charset=utf-8'
+        
         return send_file(
             file_path,
             as_attachment=True,
-            download_name=download_filename
+            download_name=download_filename,
+            mimetype=mimetype
         )
         
     except Exception as e:
@@ -734,3 +994,50 @@ def test_gemini_connection(config, is_text_processor=False):
         success=True,
         message=f'Gemini {service_type}API连接成功，模型: {config.get("model", "gemini-pro")}'
     )
+
+@main_bp.route('/api/stop-all-tasks', methods=['POST'])
+@api_error_handler
+def stop_all_tasks():
+    """停止所有正在处理的任务"""
+    try:
+        # 获取所有正在处理的任务
+        processing_tasks = []
+        for task_id, task in video_processor.tasks.items():
+            if task.status == "processing":
+                processing_tasks.append(task_id)
+        
+        if not processing_tasks:
+            return safe_json_response(
+                success=True,
+                message="当前没有正在处理的任务",
+                data={'stopped_tasks': []}
+            )
+        
+        # 停止所有正在处理的任务
+        stopped_count = 0
+        for task_id in processing_tasks:
+            task = video_processor.get_task(task_id)
+            if task and task.status == "processing":
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                task.progress = 0
+                task.progress_stage = "已停止"
+                task.progress_detail = "任务已被用户手动停止"
+                stopped_count += 1
+                logging.info(f"手动停止任务: {task_id}")
+        
+        # 保存任务状态
+        video_processor.save_tasks_to_disk()
+        
+        return safe_json_response(
+            success=True,
+            message=f"成功停止 {stopped_count} 个任务",
+            data={
+                'stopped_tasks': processing_tasks,
+                'stopped_count': stopped_count
+            }
+        )
+        
+    except Exception as e:
+        logging.error(f"停止所有任务失败: {e}")
+        raise Exception(f"停止任务失败: {str(e)}")

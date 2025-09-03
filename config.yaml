@@ -51,3 +51,21 @@ downloader:
     format: "best[height<=720]/best"  # 视频格式
     audio_format: "bestaudio/best"    # 音频格式
     quiet: false                      # 静默模式
+
+# 文件上传配置
+upload:
+  max_upload_size: 500              # 最大上传文件大小（MB）
+  upload_chunk_size: 5              # 分块上传大小（MB）
+  allowed_video_formats:             # 允许的视频格式
+    - "mp4"
+    - "avi"
+    - "mov"
+    - "mkv"
+    - "webm"
+    - "flv"
+  allowed_audio_formats:             # 允许的音频格式
+    - "mp3"
+    - "wav"
+    - "aac"
+    - "m4a"
+    - "ogg"
