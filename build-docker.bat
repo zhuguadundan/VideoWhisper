@@ -3,8 +3,8 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 echo.
-echo 🐳 VideoWhisper Docker Build Script
-echo =================================
+echo 🐳 VideoWhisper Docker Build Script v1.2.0
+echo ============================================
 
 REM 检查Docker
 docker --version >nul 2>&1
@@ -26,10 +26,25 @@ if !errorlevel! neq 0 (
 
 echo ✅ Docker and Docker Compose are available
 
+REM 检查Docker Compose插件 (支持新版Docker Desktop)
+docker compose version >nul 2>&1
+if !errorlevel! equ 0 (
+    set COMPOSE_CMD=docker compose
+) else (
+    docker-compose --version >nul 2>&1
+    if !errorlevel! equ 0 (
+        set COMPOSE_CMD=docker-compose
+    ) else (
+        set COMPOSE_CMD=docker-compose
+    )
+)
+
+echo 📋 Using command: %COMPOSE_CMD%
+
 REM 构建镜像
 echo.
-echo 🔨 Building Docker image v1.1...
-docker build -t videowhisper:1.1.0 -t videowhisper:latest .
+echo 🔨 Building Docker image zhugua/videowhisper v1.2...
+docker build -t zhugua/videowhisper:1.2 -t zhugua/videowhisper:latest .
 
 if !errorlevel! neq 0 (
     echo ❌ Failed to build Docker image
@@ -37,7 +52,8 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 
-echo ✅ Docker image v0.15 built successfully!
+echo ✅ Docker image zhugua/videowhisper v1.2 built successfully!
+echo 🏷️  Tags: zhugua/videowhisper:1.2, zhugua/videowhisper:latest
 
 REM 检查配置文件和创建目录结构
 if not exist "config.yaml" (
@@ -56,17 +72,35 @@ if not exist "logs" mkdir logs
 if not exist "config" (
     mkdir config
     if exist "config.yaml" copy "config.yaml" "config\config.yaml" >nul
+    echo 📋 Config file copied to config\ directory
 )
 
 echo ✅ Directory structure ready (temp files auto-managed, keeps latest 3 tasks)
 
 echo.
-echo =================================
+echo ============================================
 echo 🎉 Build completed successfully!
-echo =================================
+echo ============================================
 echo Next steps:
 echo 1. Edit config.yaml and add your API keys
-echo 2. Run: docker-compose up -d
-echo 3. Visit: http://localhost:5000
-echo =================================
+echo 2. Run: %COMPOSE_CMD% up -d
+echo 3. HTTP interface: http://localhost:5000
+echo 4. HTTPS interface: https://localhost:5443 (self-signed)
+echo 5. View logs: %COMPOSE_CMD% logs -f
+echo ============================================
+echo.
+echo 💡 Tips:
+echo    - HTTPS uses self-signed certificate (browser warning expected)
+echo    - To disable HTTPS: set HTTPS_ENABLED=false in docker-compose.yml
+echo    - API health check: curl http://localhost:5000/api/health
+echo    - HTTPS health check: curl -k https://localhost:5443/api/health
+echo.
+echo 🚀 Quick test commands:
+echo    # Test HTTP
+echo    curl -f http://localhost:5000/api/health
+echo    # Test HTTPS
+echo    curl -k -f https://localhost:5443/api/health
+echo    # View logs
+echo    %COMPOSE_CMD% logs -f videowhisper
+echo ============================================
 pause

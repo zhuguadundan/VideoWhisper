@@ -2,6 +2,7 @@ from app import create_app
 from app.config.settings import Config
 import threading
 import time
+import os
 
 def run_http_server(app, host, port):
     """启动HTTP服务器"""
@@ -10,13 +11,19 @@ def run_http_server(app, host, port):
 
 def run_https_server(app, https_config, ssl_context):
     """启动HTTPS服务器"""
-    print(f"启动HTTPS服务器: https://{https_config['host']}:{https_config['port']}")
-    app.run(
-        host=https_config['host'],
-        port=https_config['port'],
-        ssl_context=ssl_context,
-        debug=False
-    )
+    try:
+        print(f"启动HTTPS服务器: https://{https_config['host']}:{https_config['port']}")
+        app.run(
+            host=https_config['host'],
+            port=https_config['port'],
+            ssl_context=ssl_context,
+            debug=False,  # 生产环境不使用debug
+            threaded=True  # 启用多线程支持
+        )
+    except Exception as e:
+        print(f"HTTPS服务器启动失败: {e}")
+        import logging
+        logging.error(f"HTTPS服务器启动失败: {e}")
 
 if __name__ == '__main__':
     app = create_app()
@@ -44,17 +51,20 @@ if __name__ == '__main__':
         https_thread = threading.Thread(
             target=run_https_server,
             args=(app, https_config, app.ssl_context),
-            daemon=True
+            daemon=False,  # 不使用daemon线程，确保HTTPS服务器稳定运行
+            name="HTTPS-Server"
         )
         https_thread.start()
         
         # 等待HTTPS服务器启动
-        time.sleep(2)
+        time.sleep(3)  # 增加等待时间确保HTTPS服务器完全启动
         
-        # 在主线程中启动HTTP服务器（启用debug模式以显示详细日志）
-        print("启用详细日志模式")
-        app.run(host=http_host, port=http_port, debug=True)
+        # 在主线程中启动HTTP服务器（生产环境不使用debug模式）
+        print("启动HTTP服务器（生产模式）")
+        app.run(host=http_host, port=http_port, debug=False)
     else:
         # 仅HTTP模式
         print(f"启动HTTP服务器: http://{http_host}:{http_port}")
-        app.run(host=http_host, port=http_port, debug=True)
+        # 检查是否为开发环境
+        is_development = os.environ.get('FLASK_ENV') == 'development'
+        app.run(host=http_host, port=http_port, debug=is_development)

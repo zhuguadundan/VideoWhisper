@@ -76,6 +76,16 @@ echo -e "${GREEN}HTTP interface:  http://localhost:5000${NC}"
 echo -e "${GREEN}HTTPS interface: https://localhost:${HTTPS_PORT}${NC}"
 echo -e "${YELLOW}Note: HTTPS uses self-signed certificate, browser may show security warning${NC}"
 
+# 检查证书文件状态
+if [ "$HTTPS_ENABLED" = "true" ]; then
+    echo -e "${YELLOW}Checking SSL certificates...${NC}"
+    if [ -f "/app/config/cert.pem" ] && [ -f "/app/config/key.pem" ]; then
+        echo -e "${GREEN}SSL certificates found${NC}"
+    else
+        echo -e "${YELLOW}SSL certificates not found, will be auto-generated${NC}"
+    fi
+fi
+
 # 启动应用
 echo -e "${GREEN}Starting VideoWhisper Application...${NC}"
 echo -e "${BLUE}======================================${NC}"

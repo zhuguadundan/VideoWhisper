@@ -2,15 +2,15 @@
 FROM python:3.9-slim
 
 # 设置版本标签
-LABEL version="1.1.0"
-LABEL description="VideoWhisper - AI视频转文本处理平台，版本1.1.0"
+LABEL version="1.2.0"
+LABEL description="VideoWhisper - AI视频转文本处理平台，版本1.2.0"
 LABEL maintainer="VideoWhisper Team"
 
 # 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
-    APP_VERSION=1.1.0
+    APP_VERSION=1.2.0
 
 # 设置工作目录
 WORKDIR /app
