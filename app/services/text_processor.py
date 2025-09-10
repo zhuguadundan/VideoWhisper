@@ -504,6 +504,70 @@ class TextProcessor:
         except Exception as e:
             return {"error": f"分析失败: {e}"}
 
+    def generate_bilingual_transcript(self, english_text: str, provider: str = None) -> str:
+        """将英文逐字稿翻译为中英对照（句对句对照：上面中文、下面英文）。"""
+        if not provider or not self.is_provider_available(provider):
+            provider = self.get_default_provider()
+
+        prompt = (
+            "你将收到一段英文逐字稿，请严格生成【中英对照（句对句）】的 Markdown。\n"
+            "硬性要求：\n"
+            "1) 每个英文句子下方紧跟一行中文译文（中文在上、英文在下）；\n"
+            "2) 相邻句对之间空一行；\n"
+            "3) 不要省略任何英文句子，英文原文必须原封不动；\n"
+            "4) 不要添加任何额外内容：不得出现‘以下是’、‘这是中文翻译’、‘对照如下’、‘示例如下’、标题（如以#开头）或总结说明；\n"
+            "5) 仅输出对照正文，不要输出任何引言、注释或多余标记。\n\n"
+            "格式示例（仅示意格式）：\n"
+            "这是中文翻译。\n"
+            "This is the English sentence.\n\n"
+            "现在开始：\n"
+        )
+
+        if provider.lower() == 'siliconflow':
+            raw = self.process_with_siliconflow(english_text, prompt)
+        elif provider.lower() in ('openai', 'custom'):
+            raw = self.process_with_openai(english_text, prompt)
+        elif provider.lower() == 'gemini':
+            raw = self.process_with_gemini(english_text, prompt)
+        else:
+            raise ValueError(f"不支持的服务提供商: {provider}")
+
+        return self._sanitize_bilingual_output(raw)
+
+    def _sanitize_bilingual_output(self, text: str) -> str:
+        """移除模型可能生成的冗余前缀/说明/标题，仅保留中英对照正文。"""
+        if not text:
+            return text
+
+        import re
+        lines = [l.rstrip() for l in text.splitlines()]
+
+        banned_patterns = [
+            r'^\s*#.*',  # 任何Markdown标题
+            r'^\s*(这是中文翻译|以下是|对照如下|翻译如下|示例如下|格式示例|现在开始|注意|说明).*',
+            r'^\s*(Here is|Below is|Example|Format|Now start|Note|Remark).*',
+            r'^\s*[-*_]{3,}\s*$',  # 分隔线
+        ]
+        banned_re = re.compile('|'.join(banned_patterns), re.IGNORECASE)
+
+        cleaned = [l for l in lines if not banned_re.match(l or '')]
+
+        # 去掉首尾空行，合并多余空行
+        out = []
+        prev_blank = False
+        for l in cleaned:
+            blank = (l.strip() == '')
+            if blank and prev_blank:
+                continue
+            out.append(l)
+            prev_blank = blank
+        while out and out[0].strip() == '':
+            out.pop(0)
+        while out and out[-1].strip() == '':
+            out.pop()
+
+        return '\n'.join(out) + ('\n' if out else '')
+
 if __name__ == "__main__":
     # 测试代码
     try:

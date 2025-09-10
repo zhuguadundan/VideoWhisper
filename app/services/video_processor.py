@@ -1,4 +1,5 @@
 import os
+import logging
 import json
 import uuid
 import glob
@@ -14,10 +15,28 @@ from app.services.text_processor import TextProcessor
 from app.services.file_uploader import FileUploader
 from app.config.settings import Config
 
+# 将模块内的 print 重定向到日志，便于统一管理
+_logger = logging.getLogger(__name__)
+def _log_print(*args, **kwargs):
+    try:
+        msg = ' '.join(str(a) for a in args)
+    except Exception:
+        msg = ' '.join(repr(a) for a in args)
+    level = kwargs.pop('level', None)
+    if level == 'error':
+        _logger.error(msg)
+    elif level == 'warning':
+        _logger.warning(msg)
+    else:
+        _logger.info(msg)
+
+print = _log_print
+
 class VideoProcessor:
     """视频处理核心类"""
     
     def __init__(self):
+        self.logger = logging.getLogger(__name__)
         self.config = Config.load_config()
         # 处理相对路径，转换为绝对路径
         output_dir = self.config['system']['output_dir']
@@ -46,9 +65,27 @@ class VideoProcessor:
         # 存储处理任务
         self.tasks: Dict[str, ProcessingTask] = {}
         self.tasks_file = os.path.join(self.output_dir, 'tasks.json')
+        # 任务取消标记存储
+        self._cancel_flags: Dict[str, bool] = {}
         
         # 加载已有任务数据
         self.load_tasks_from_disk()
+
+    def request_cancel(self, task_id: str):
+        """请求取消指定任务"""
+        self._cancel_flags[task_id] = True
+
+    def cancel_all_processing(self) -> List[str]:
+        """标记所有 processing 状态任务为取消，返回受影响的任务ID列表"""
+        affected: List[str] = []
+        for tid, t in self.tasks.items():
+            if getattr(t, 'status', None) == 'processing':
+                self._cancel_flags[tid] = True
+                affected.append(tid)
+        return affected
+
+    def _is_cancelled(self, task_id: str) -> bool:
+        return self._cancel_flags.get(task_id, False)
     
     def _sanitize_filename(self, filename: str) -> str:
         """清理文件名中的非法字符，适配Windows系统"""
@@ -172,6 +209,11 @@ class VideoProcessor:
             self.save_tasks_to_disk()  # 保存状态更新
             
             # 1. 获取视频信息
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
             print(f"[{task_id}] 获取视频信息...")
             video_info_dict = self.video_downloader.get_video_info(task.video_url, task.youtube_cookies)
             task.video_info = VideoInfo(
@@ -185,6 +227,11 @@ class VideoProcessor:
             task.estimated_time = int(video_info_dict['duration'] * 0.3)  # 粗略估计处理时间
             
             # 2. 下载音频（简化版，仅音频下载）
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
             print(f"[{task_id}] 下载音频...")
             task.progress_stage = "下载音频"
             task.progress_detail = "正在下载音频文件..."
@@ -202,6 +249,11 @@ class VideoProcessor:
                 raise Exception(f"音频下载失败: {download_error}")
             
             # 3. 处理长音频（分段）
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
             print(f"[{task_id}] 处理音频...")
             task.progress_stage = "处理音频"
             task.progress_detail = "分析音频文件..."
@@ -240,6 +292,11 @@ class VideoProcessor:
                 max_consecutive_failures = 3  # 最多允许连续失败3个片段
                 
                 for i, segment in enumerate(segments):
+                    if self._is_cancelled(task_id):
+                        task.status = "failed"
+                        task.error_message = "用户手动停止任务"
+                        self.save_tasks_to_disk()
+                        return task
                     task.processed_segments = i + 1
                     task.progress_detail = f"正在处理第 {i+1}/{len(segments)} 个音频片段..."
                     progress_increment = (60 - 40) * (i + 1) / len(segments)
@@ -371,6 +428,11 @@ class VideoProcessor:
                 transcription_result = None
                 
                 for retry in range(max_retries):
+                    if self._is_cancelled(task_id):
+                        task.status = "failed"
+                        task.error_message = "用户手动停止任务"
+                        self.save_tasks_to_disk()
+                        return task
                     try:
                         transcription_result = self.speech_to_text.transcribe_audio(audio_path)
                         
@@ -413,6 +475,16 @@ class VideoProcessor:
                 time.sleep(1)
             
             # 创建转录结果对象
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
             print(f"[{task_id}] 合并转录结果: 文本长度={len(full_text)}, 片段数={len(all_segments)}")
             task.transcription = TranscriptionResult(
                 segments=all_segments,
@@ -423,6 +495,16 @@ class VideoProcessor:
             task.progress = 60
             
             # 5. 生成格式化逐字稿
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
             print(f"[{task_id}] 生成逐字稿...")
             task.progress_stage = "生成逐字稿"
             task.progress_detail = "使用AI优化文本格式..."
@@ -445,6 +527,16 @@ class VideoProcessor:
             self.save_tasks_to_disk()
             
             # 6. 生成总结报告
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
             print(f"[{task_id}] 生成总结报告...")
             task.progress_stage = "生成总结报告"
             task.progress_detail = f"AI正在分析内容并生成摘要... (使用 {llm_provider})"
@@ -462,6 +554,16 @@ class VideoProcessor:
             self.save_tasks_to_disk()
             
             # 7. 内容分析
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
             print(f"[{task_id}] 内容分析...")
             task.progress_stage = "内容分析"
             task.progress_detail = f"提取关键信息和主题... (使用 {llm_provider})"
@@ -552,6 +654,11 @@ class VideoProcessor:
             self.save_tasks_to_disk()
             
             # 获取文件信息
+            if self._is_cancelled(task_id):
+                task.status = "failed"
+                task.error_message = "用户手动停止任务"
+                self.save_tasks_to_disk()
+                return task
             print(f"[{task_id}] 获取文件信息...")
             file_info = self.file_uploader.get_file_info_from_path(task.audio_file_path)
             
@@ -568,6 +675,11 @@ class VideoProcessor:
             
             # 如果是视频文件，需要先提取音频
             if task.need_audio_extraction:
+                if self._is_cancelled(task_id):
+                    task.status = "failed"
+                    task.error_message = "用户手动停止任务"
+                    self.save_tasks_to_disk()
+                    return task
                 print(f"[{task_id}] 提取视频音频...")
                 task.progress_stage = "音频提取"
                 task.progress_detail = "正在从视频中提取音频..."
@@ -595,6 +707,11 @@ class VideoProcessor:
             # 从这里开始，复用现有的音频处理流程
             # 获取音频信息
             try:
+                if self._is_cancelled(task_id):
+                    task.status = "failed"
+                    task.error_message = "用户手动停止任务"
+                    self.save_tasks_to_disk()
+                    return task
                 print(f"[{task_id}] 开始获取音频信息: {task.audio_file_path}")
                 audio_info = self.audio_extractor.get_audio_info(task.audio_file_path)
                 print(f"[{task_id}] 音频信息: {audio_info}")
@@ -627,6 +744,11 @@ class VideoProcessor:
                 max_consecutive_failures = 3
                 
                 for i, segment in enumerate(segments):
+                    if self._is_cancelled(task_id):
+                        task.status = "failed"
+                        task.error_message = "用户手动停止任务"
+                        self.save_tasks_to_disk()
+                        return task
                     task.processed_segments = i + 1
                     task.progress_detail = f"正在处理第 {i+1}/{len(segments)} 个音频片段..."
                     progress_increment = (60 - 40) * (i + 1) / len(segments)
@@ -739,6 +861,11 @@ class VideoProcessor:
                 transcription_result = None
                 
                 for retry in range(max_retries):
+                    if self._is_cancelled(task_id):
+                        task.status = "failed"
+                        task.error_message = "用户手动停止任务"
+                        self.save_tasks_to_disk()
+                        return task
                     try:
                         transcription_result = self.speech_to_text.transcribe_audio(task.audio_file_path)
                         
@@ -982,7 +1109,9 @@ class VideoProcessor:
             "video_duration": task.video_info.duration if task.video_info else 0,
             "error_message": task.error_message,
             "ai_response_times": getattr(task, 'ai_response_times', {}),
-            "transcript_ready": getattr(task, 'transcript_ready', False)
+            "transcript_ready": getattr(task, 'transcript_ready', False),
+            "translation_status": getattr(task, 'translation_status', ''),
+            "translation_ready": getattr(task, 'translation_ready', False)
         }
         
         # 如果逐字稿已准备好，包含逐字稿内容
@@ -991,6 +1120,51 @@ class VideoProcessor:
             progress_info["full_transcript"] = task.transcript
         
         return progress_info
+
+    def translate_transcript(self, task_id: str, llm_provider: Optional[str] = None, api_config: Optional[dict] = None):
+        """将英文逐字稿翻译为中英对照，并生成文件。"""
+        task = self.get_task(task_id)
+        if not task:
+            raise ValueError(f"任务不存在: {task_id}")
+
+        if api_config and hasattr(self.text_processor, 'set_runtime_config'):
+            self.text_processor.set_runtime_config(api_config.get('text_processor', {}))
+
+        if not task.transcript or not task.transcript.strip():
+            raise ValueError("任务尚未生成逐字稿，无法翻译")
+
+        task.translation_status = 'processing'
+        task.translation_ready = False
+        self.save_tasks_to_disk()
+
+        try:
+            provider = llm_provider or self.text_processor.get_default_provider()
+            bilingual = self.text_processor.generate_bilingual_transcript(task.transcript, provider=provider)
+            self._save_bilingual_transcript(task, bilingual)
+            task.translation_status = 'completed'
+            task.translation_ready = True
+        except Exception as e:
+            task.translation_status = 'failed'
+            task.translation_ready = False
+            task.error_message = f"翻译失败: {e}"
+            raise
+        finally:
+            self.save_tasks_to_disk()
+
+    def _save_bilingual_transcript(self, task: ProcessingTask, content: str):
+        task_dir = os.path.join(self.output_dir, task.id)
+        os.makedirs(task_dir, exist_ok=True)
+        if task.video_info and task.video_info.title:
+            safe_base = self._sanitize_filename(task.video_info.title)
+        else:
+            safe_base = f"video_{task.id[:8]}"
+        out_path = os.path.join(task_dir, f"transcript_bilingual_{safe_base}.md")
+        try:
+            with open(out_path, 'w', encoding='utf-8') as f:
+                # 只写正文，不写任何标题，避免模型/文件头部混入额外说明
+                f.write(content.strip() + "\n")
+        except Exception as e:
+            print(f"保存对照逐字稿失败: {e}")
     
     def load_tasks_from_disk(self):
         """从磁盘加载任务数据"""

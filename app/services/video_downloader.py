@@ -6,6 +6,24 @@ import re
 from typing import Dict, Any, Optional
 from app.config.settings import Config
 from app.services.file_manager import FileManager
+import logging
+
+# 统一将模块 print 输出到日志
+_logger = logging.getLogger(__name__)
+def _log_print(*args, **kwargs):
+    try:
+        msg = ' '.join(str(a) for a in args)
+    except Exception:
+        msg = ' '.join(repr(a) for a in args)
+    level = kwargs.pop('level', None)
+    if level == 'error':
+        _logger.error(msg)
+    elif level == 'warning':
+        _logger.warning(msg)
+    else:
+        _logger.info(msg)
+
+print = _log_print
 
 class VideoDownloader:
     """简化的视频下载器 - 仅支持音频下载"""

@@ -1,6 +1,6 @@
 # VideoWhisper - 视频智语 🎥✨
 
-> 当前版本：v3.5.0 | 最后更新：2025-09-03
+> 当前版本：v3.6.0 | 最后更新：2025-09-10
 
 本项目完全依赖硅基流动服务，如未注册请点击下方邀请链接注册可获14元赠金
 https://cloud.siliconflow.cn/i/uy4d8V8Y
@@ -20,6 +20,11 @@ https://cloud.siliconflow.cn/i/uy4d8V8Y
 - 🐳 **容器部署**: Docker一键部署，简单易用
 
 ## 📈 版本更新
+
+### v3.6.0 (2025-09-10) - 支持中英对照翻译 🚀
+- ✅ 新增按钮一键翻译成中英文句对句翻译版
+- ✅ review代码修复大量微小错误及安全性提升，防止文件路径遍历，日志脱敏
+- ✅ 新增白名单功能，启用请在compose中添加环境变量ALLOWED_API_HOSTS=你的域名
 
 ### v3.5.0 (2025-09-03) - 支持本地音视频上传 🚀
 - ✅ 支持本地音视频上传转录逐字稿
@@ -94,6 +99,9 @@ pip install -r requirements.txt
 
 # 3. 运行应用
 python run.py
+ 
+# 4. 运行最小化冒烟测试（可选）
+pytest -q
 ```
 
 ## 📖 使用指南
@@ -134,3 +142,23 @@ python test_complete.py    # 完整集成测试
 [🏠 首页](https://github.com/zhuguadundan/VideoWhisper) • [🐛 反馈](https://github.com/zhuguadundan/VideoWhisper/issues)
 
 Made with ❤️ by VideoWhisper Team
+
+## 安全说明（重要）
+
+- 文件接口已加路径校验，下载/删除仅限 `temp/` 与 `output/` 范围，防止路径遍历。
+- API 连接测试对自定义 Base URL 做基础校验以降低 SSRF 风险；已提供开关以兼容更多部署：
+- 允许 `http`（默认开启，方便升级用户无缝使用）：`security.allow_insecure_http: true` 或环境变量 `ALLOW_INSECURE_HTTP=true`。
+- 允许私网/本地地址（默认开启）：`security.allow_private_addresses: true` 或 `ALLOW_PRIVATE_ADDRESSES=true`。
+- 日志统一输出到 `logs/app.log`，对 `api_key`、`token`、`authorization` 等敏感字段做脱敏记录。
+- 如需进一步限制可访问的 API 域名，可设置白名单（可选）：
+   - 环境变量：`ALLOWED_API_HOSTS=api.siliconflow.cn,api.openai.com`
+   - 或 `config.yaml` -> `security.allowed_api_hosts`
+   - 若希望强制白名单生效（可选）：`security.enforce_api_hosts_whitelist: true` 或 `ENFORCE_API_HOSTS_WHITELIST=true`
+
+### 兼容模式与生产建议
+
+- 为兼容已有用户与自建反代，连接测试接口默认允许 `http` 与私网/本地地址（即 `security.allow_insecure_http: true` 与 `security.allow_private_addresses: true`）。
+- 生产环境建议改为“严格模式”以降低 SSRF 风险：
+  - 设置 `security.allow_insecure_http: false`、`security.allow_private_addresses: false`；
+  - 并启用白名单：`security.enforce_api_hosts_whitelist: true`，配合 `security.allowed_api_hosts`（或环境变量 `ALLOWED_API_HOSTS`）。
+- 说明：上述限制仅作用于“连接测试接口”，实际处理流程不会被此校验拦截。

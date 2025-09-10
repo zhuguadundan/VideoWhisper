@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 from app.config.settings import Config
 from app.utils.certificate_manager import CertificateManager, create_ssl_context
 import logging
+from logging.handlers import RotatingFileHandler
 import traceback
 import os
 
@@ -45,15 +46,21 @@ def create_app():
         app.ssl_context = None
         app.https_config = https_config
     
-    # 配置日志
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('app.log', encoding='utf-8'),
-            logging.StreamHandler()
-        ]
-    )
+    # 配置日志目录
+    os.makedirs('logs', exist_ok=True)
+
+    # 配置日志（滚动文件 + 控制台）
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # 滚动文件
+    file_handler = RotatingFileHandler('logs/app.log', maxBytes=5*1024*1024, backupCount=3, encoding='utf-8')
+    file_handler.setFormatter(fmt)
+    # 控制台
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(fmt)
+    # 重置并添加
+    root_logger.handlers = [file_handler, stream_handler]
     
     def is_api_request():
         """判断是否是API请求"""
@@ -107,13 +114,71 @@ def create_app():
         else:
             return f"<h1>请求格式错误</h1><p>请求数据格式不正确</p>", 400
     
+    # 覆盖默认错误处理，修正中文提示乱码
+    @app.errorhandler(500)
+    def _handle_internal_error_clean(e):
+        logging.error(f"Internal Server Error: {str(e)}")
+        logging.error(traceback.format_exc())
+        if is_api_request():
+            return jsonify({
+                'success': False,
+                'error': '服务器内部错误',
+                'message': '系统出现内部错误，请稍后重试。如果问题持续存在，请联系管理员。'
+            }), 500
+        return f"<h1>服务器错误</h1><p>系统出现内部错误，请稍后重试</p>", 500
+
+    @app.errorhandler(404)
+    def _handle_not_found_clean(e):
+        if is_api_request():
+            return jsonify({
+                'success': False,
+                'error': '资源不存在',
+                'message': '请求的API端点不存在'
+            }), 404
+        return f"<h1>页面未找到</h1><p>请求的页面不存在</p>", 404
+
+    @app.errorhandler(405)
+    def _handle_method_not_allowed_clean(e):
+        if is_api_request():
+            return jsonify({
+                'success': False,
+                'error': '请求方法不允许',
+                'message': '请求方法不被允许，请检查HTTP方法'
+            }), 405
+        return f"<h1>请求方法不允许</h1><p>请求方法不被允许</p>", 405
+
+    @app.errorhandler(400)
+    def _handle_bad_request_clean(e):
+        if is_api_request():
+            return jsonify({
+                'success': False,
+                'error': '请求格式错误',
+                'message': '请求数据格式不正确，请检查请求参数'
+            }), 400
+        return f"<h1>请求格式错误</h1><p>请求数据格式不正确</p>", 400
+
     @app.errorhandler(Exception)
     def handle_exception(e):
         # 记录详细的异常信息
         logging.exception(f"Unhandled exception: {str(e)}")
         logging.error(f"Request URL: {request.url}")
         logging.error(f"Request Method: {request.method}")
-        logging.error(f"Request Data: {request.get_data(as_text=True)}")
+        try:
+            if request.is_json:
+                payload = request.get_json(silent=True) or {}
+                if isinstance(payload, dict):
+                    masked = {}
+                    for k, v in payload.items():
+                        if any(s in k.lower() for s in ['api_key', 'apikey', 'authorization', 'token', 'secret']):
+                            masked[k] = '***'
+                        else:
+                            masked[k] = v
+                    logging.error(f"Request JSON (masked): {masked}")
+            else:
+                body = request.get_data(cache=False) or b''
+                logging.error(f"Request Body length: {len(body)}")
+        except Exception:
+            pass
         logging.error(traceback.format_exc())
         
         # 处理不同类型的异常，提供更友好的错误信息

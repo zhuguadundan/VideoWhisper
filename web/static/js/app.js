@@ -752,6 +752,10 @@ function initializeEventListeners() {
     
     // 下载按钮
     document.getElementById('downloadTranscript').addEventListener('click', () => downloadFile('transcript'));
+    const translateBtn = document.getElementById('translateBilingual');
+    if (translateBtn) {
+        translateBtn.addEventListener('click', translateBilingualHandler);
+    }
     document.getElementById('importObsidianRoot').addEventListener('click', () => importToObsidian(''));
     document.getElementById('downloadSummary').addEventListener('click', () => downloadFile('summary'));
     
@@ -776,6 +780,49 @@ function debounce(func, wait) {
         clearTimeout(timeout);
         timeout = setTimeout(later, wait);
     };
+}
+
+// 触发中英对照翻译
+async function translateBilingualHandler() {
+    try {
+        if (!currentTaskId) {
+            showAlert('没有可翻译的任务', 'warning');
+            return;
+        }
+        const btn = document.getElementById('translateBilingual');
+        const providerSelect = document.getElementById('llmProvider');
+        const provider = providerSelect ? providerSelect.value : null;
+        const config = getApiConfig();
+        if (!config || !hasValidConfig(config)) {
+            showAlert('请先配置API密钥', 'warning');
+            return;
+        }
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-language me-1"></i>正在生成...';
+        const resp = await fetch('/api/translate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ task_id: currentTaskId, llm_provider: provider, api_config: config })
+        });
+        const result = await resp.json();
+        if (result.success) {
+            showToast('info', '已开始翻译', '正在生成中英对照逐字稿');
+            // 等待后端完成，沿用进度轮询即可感知 translation_status
+            startProgressMonitoring(currentTaskId);
+        } else {
+            showToast('error', '翻译启动失败', result.error || '');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-language me-1"></i>生成中英对照';
+        }
+    } catch (e) {
+        console.error('翻译触发失败:', e);
+        showToast('error', '翻译失败', e.message || '');
+        const btn = document.getElementById('translateBilingual');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-language me-1"></i>生成中英对照';
+        }
+    }
 }
 
 // URL验证
@@ -922,21 +969,45 @@ function startProgressMonitoring(taskId = null) {
             
             const result = await response.json();
             
-            if (result.success) {
-                updateProgress(result.data);
-                
-                if (result.data.status === 'completed') {
+                if (result.success) {
+                    const data = result.data;
+                    updateProgress(data);
+
+                    const ts = data.translation_status || '';
+                    const isTaskCompleted = data.status === 'completed';
+
+                    if (isTaskCompleted && ts === 'processing') {
+                        // 任务已完成，但翻译在进行中：继续轮询直到翻译完成
+                        return;
+                    }
+
+                    if (isTaskCompleted && ts === 'completed') {
+                        clearInterval(progressInterval);
+                        await loadResults();
+                        return;
+                    }
+
+                    if (isTaskCompleted && !ts) {
+                        // 没有翻译，正常结束
+                        clearInterval(progressInterval);
+                        await loadResults();
+                        return;
+                    }
+
+                    if (data.status === 'failed') {
+                        clearInterval(progressInterval);
+                        let errorMsg = data.error_message || '处理失败';
+                        showAlert('处理失败: ' + errorMsg, 'danger');
+                        return;
+                    }
+                } else {
+                    // API返回失败结果
                     clearInterval(progressInterval);
-                    await loadResults();
-                } else if (result.data.status === 'failed') {
-                    clearInterval(progressInterval);
-                    let errorMsg = result.data.error_message || '处理失败';
-                    showAlert('处理失败: ' + errorMsg, 'danger');
+                    showAlert(result.message || result.error || '无法获取进度信息', 'danger');
                 }
-            } else {
-                // API返回失败结果
-                clearInterval(progressInterval);
-                showAlert(result.message || result.error || '无法获取进度信息', 'danger');
+            // 当翻译进行中时，给出轻提示
+            if (result.success && result.data.translation_status === 'processing') {
+                console.debug('翻译进行中...');
             }
         } catch (error) {
             console.error('获取进度失败:', error);
@@ -962,6 +1033,7 @@ function updateProgress(data) {
     const segmentProgress = document.getElementById('segmentProgress');
     const estimatedTime = document.getElementById('estimatedTime');
     const videoInfo = document.getElementById('videoInfo');
+    const translateBtn = document.getElementById('translateBilingual');
     
     let statusMessage = '';
     
@@ -1044,6 +1116,20 @@ function updateProgress(data) {
             segmentProgress.style.display = 'none';
             estimatedTime.style.display = 'none';
             break;
+    }
+
+    // 根据翻译状态更新按钮文案/状态
+    if (translateBtn) {
+        if (data.translation_status === 'processing') {
+            translateBtn.disabled = true;
+            translateBtn.innerHTML = '<i class="fas fa-language me-1"></i>正在生成...';
+        } else if (data.translation_status === 'completed') {
+            translateBtn.disabled = false;
+            translateBtn.innerHTML = '<i class="fas fa-language me-1"></i>重新生成对照';
+        } else {
+            translateBtn.disabled = false;
+            translateBtn.innerHTML = '<i class="fas fa-language me-1"></i>生成中英对照';
+        }
     }
     
     statusText.textContent = statusMessage;
@@ -1212,10 +1298,14 @@ async function loadResults() {
             const downloadTranscriptBtn = document.getElementById('downloadTranscript');
             const downloadSummaryBtn = document.getElementById('downloadSummary');
             const importObsidianBtn = document.getElementById('importObsidianRoot');
+            const translateBtn = document.getElementById('translateBilingual');
             
             if (downloadTranscriptBtn) {
                 downloadTranscriptBtn.disabled = false;
                 console.log('loadResults: 下载逐字稿按钮已启用');
+            }
+            if (translateBtn) {
+                translateBtn.disabled = false;
             }
             if (downloadSummaryBtn) {
                 downloadSummaryBtn.disabled = false;

@@ -1,5 +1,6 @@
 import os
 import shutil
+import logging
 from typing import Optional
 
 def ensure_directory_exists(directory: str):
@@ -23,7 +24,7 @@ def clean_directory(directory: str, keep_files: Optional[list] = None):
                 elif os.path.isdir(file_path):
                     shutil.rmtree(file_path)
             except Exception as e:
-                print(f"清理文件失败 {file_path}: {e}")
+                logging.getLogger(__name__).warning(f"清理文件失败 {file_path}: {e}")
 
 def format_file_size(size_bytes: int) -> str:
     """格式化文件大小"""

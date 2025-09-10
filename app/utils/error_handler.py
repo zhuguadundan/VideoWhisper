@@ -51,7 +51,20 @@ def api_error_handler(f):
             logging.error(f"Request Method: {request.method}")
             logging.error(f"Request Args: {dict(request.args)}")
             if request.is_json:
-                logging.error(f"Request JSON: {request.get_json()}")
+                try:
+                    payload = request.get_json(silent=True) or {}
+                    if isinstance(payload, dict):
+                        masked = {}
+                        for k, v in payload.items():
+                            if any(s in k.lower() for s in ['api_key', 'apikey', 'authorization', 'token', 'secret']):
+                                masked[k] = '***'
+                            else:
+                                masked[k] = v
+                        logging.error(f"Request JSON (masked): {masked}")
+                    else:
+                        logging.error("Request JSON present (non-dict)")
+                except Exception:
+                    logging.error("Request JSON parse error for logging")
             logging.error(traceback.format_exc())
             
             return jsonify({

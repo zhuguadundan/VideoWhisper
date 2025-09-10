@@ -12,6 +12,68 @@ from app.services.file_uploader import FileUploader
 from app.models.data_models import UploadTask
 from app.utils.error_handler import api_error_handler, safe_json_response
 import logging
+import ipaddress
+from urllib.parse import urlparse
+from app.config.settings import Config
+
+# 简单的 base_url 安全校验，防止 SSRF
+# 白名单来源与安全开关来自 config.yaml 与环境变量（环境变量优先）
+def _env_bool(name: str, default: bool) -> bool:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    return str(val).strip().lower() in ("1", "true", "yes", "on")
+
+try:
+    _cfg = Config.load_config()
+    _sec = _cfg.get('security', {}) or {}
+    _cfg_hosts = _sec.get('allowed_api_hosts', []) or []
+    _allow_http_default = bool(_sec.get('allow_insecure_http', True))
+    _allow_private_default = bool(_sec.get('allow_private_addresses', True))
+    _enforce_whitelist_default = bool(_sec.get('enforce_api_hosts_whitelist', False))
+except Exception:
+    _cfg_hosts = []
+    _allow_http_default = True
+    _allow_private_default = True
+    _enforce_whitelist_default = False
+
+_env_hosts = [h.strip().lower() for h in os.environ.get('ALLOWED_API_HOSTS', '').split(',') if h.strip()]
+ALLOWED_API_HOSTS = list({*(h.lower() for h in _cfg_hosts if isinstance(h, str)), *_env_hosts})
+
+ALLOW_INSECURE_HTTP = _env_bool('ALLOW_INSECURE_HTTP', _allow_http_default)
+ALLOW_PRIVATE_ADDRESSES = _env_bool('ALLOW_PRIVATE_ADDRESSES', _allow_private_default)
+ENFORCE_API_HOSTS_WHITELIST = _env_bool('ENFORCE_API_HOSTS_WHITELIST', _enforce_whitelist_default)
+
+def _is_safe_base_url(url: str) -> bool:
+    try:
+        if not url:
+            return True  # 空值表示使用默认地址
+        p = urlparse(url)
+        scheme = (p.scheme or '').lower()
+        if scheme not in ('https', 'http'):
+            return False
+        if scheme == 'http' and not ALLOW_INSECURE_HTTP:
+            return False
+        host = p.hostname
+        if not host:
+            return False
+        # 禁止本地/环回/私网/多播等地址
+        try:
+            ip = ipaddress.ip_address(host)
+            if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast) and not ALLOW_PRIVATE_ADDRESSES:
+                return False
+        except ValueError:
+            # 不是纯 IP，当作域名处理
+            if host.lower() in {'localhost'} and not ALLOW_PRIVATE_ADDRESSES:
+                return False
+        # 可选：域名白名单（环境变量/配置）
+        if ENFORCE_API_HOSTS_WHITELIST and ALLOWED_API_HOSTS:
+            h = host.lower()
+            if not any(h == w or h.endswith('.' + w) for w in ALLOWED_API_HOSTS):
+                return False
+        return True
+    except Exception:
+        return False
 
 try:
     import openai
@@ -391,6 +453,32 @@ def get_progress(task_id):
     
     return safe_json_response(success=True, data=progress)
 
+@main_bp.route('/api/translate', methods=['POST'])
+@api_error_handler
+def translate_bilingual():
+    """生成中英对照逐字稿（句对句：上中文、下英文）"""
+    data = request.get_json()
+    if not data:
+        raise ValueError("请求数据不能为空")
+
+    task_id = data.get('task_id', '').strip()
+    if not task_id:
+        raise ValueError("请提供任务ID")
+
+    llm_provider = data.get('llm_provider')
+    api_config = data.get('api_config', {})
+
+    def safe_translate():
+        try:
+            video_processor.translate_transcript(task_id, llm_provider, api_config)
+            logging.info(f"翻译完成（中英对照）: {task_id}")
+        except Exception as e:
+            logging.exception(f"翻译线程异常 [{task_id}]: {e}")
+
+    t = threading.Thread(target=safe_translate, daemon=True)
+    t.start()
+    return safe_json_response(success=True, data={'task_id': task_id}, message='已开始生成中英对照逐字稿')
+
 @main_bp.route('/api/result/<task_id>')
 @api_error_handler
 def get_result(task_id):
@@ -402,6 +490,19 @@ def get_result(task_id):
     if task.status != 'completed':
         raise ValueError(f"任务未完成，当前状态: {task.status}")
     
+    # 如果已生成对照逐字稿，优先返回对照版用于前端展示/导入
+    transcript_text = task.transcript
+    try:
+        if getattr(task, 'translation_ready', False):
+            # 读取对照版文件内容作为展示
+            task_dir = os.path.join(video_processor.output_dir, task_id)
+            bilingual_files = glob.glob(os.path.join(task_dir, 'transcript_bilingual_*.md'))
+            if bilingual_files:
+                with open(bilingual_files[0], 'r', encoding='utf-8') as f:
+                    transcript_text = f.read()
+    except Exception:
+        pass
+
     result_data = {
         'video_info': {
             'title': task.video_info.title if task.video_info else '',
@@ -409,7 +510,7 @@ def get_result(task_id):
             'duration': task.video_info.duration if task.video_info else 0,
             'url': task.video_url
         },
-        'transcript': task.transcript,
+        'transcript': transcript_text,
         'summary': task.summary,
         'analysis': task.analysis
     }
@@ -432,8 +533,11 @@ def download_file(task_id, file_type):
         
         # 动态查找实际的文件名
         if file_type == 'transcript':
-            # 查找以transcript_开头的.md文件
-            transcript_files = glob.glob(os.path.join(task_dir, 'transcript_*.md'))
+            # 优先查找对照版
+            transcript_files = glob.glob(os.path.join(task_dir, 'transcript_bilingual_*.md'))
+            if not transcript_files:
+                # 回退至原版
+                transcript_files = glob.glob(os.path.join(task_dir, 'transcript_*.md'))
             if not transcript_files:
                 # 如果没找到，尝试查找transcript.md
                 transcript_files = glob.glob(os.path.join(task_dir, 'transcript.md'))
@@ -612,7 +716,8 @@ def list_files():
                                 'size': file_size,
                                 'size_human': format_file_size(file_size),
                                 'modified_time': modified_time.strftime('%Y-%m-%d %H:%M:%S'),
-                                'file_path': file_path
+                                # 避免暴露服务器绝对路径
+                                'file_path': f"{task_id}/{file_name}"
                             })
         
         # 扫描临时目录的视频和音频文件
@@ -637,7 +742,7 @@ def list_files():
                         'size': file_size,
                         'size_human': format_file_size(file_size),
                         'modified_time': modified_time.strftime('%Y-%m-%d %H:%M:%S'),
-                        'file_path': file_path
+                        'file_path': f"temp/{file_name}"
                     })
         
         # 按修改时间倒序排列
@@ -670,15 +775,20 @@ def download_managed_file(file_id):
         file_name = '/'.join(parts[1:])
         
         # 构造文件路径
-        if task_id == 'temp':
-            file_path = os.path.join(video_processor.temp_dir, file_name)
-        else:
-            file_path = os.path.join(video_processor.output_dir, task_id, file_name)
+        # 安全构造路径，防止路径遍历
+        base_dir = video_processor.temp_dir if task_id == 'temp' else os.path.join(video_processor.output_dir, task_id)
+        base_abs = os.path.abspath(base_dir)
+        candidate = os.path.abspath(os.path.join(base_abs, file_name))
+        try:
+            if os.path.commonpath([base_abs, candidate]) != base_abs:
+                return jsonify({'success': False, 'message': '非法的文件路径'}), 400
+        except Exception:
+            return jsonify({'success': False, 'message': '非法的文件路径'}), 400
         
-        if not os.path.exists(file_path):
+        if not os.path.exists(candidate):
             return jsonify({'success': False, 'message': '文件不存在'})
         
-        return send_file(file_path, as_attachment=True, download_name=file_name)
+        return send_file(candidate, as_attachment=True, download_name=os.path.basename(file_name))
         
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
@@ -715,10 +825,20 @@ def delete_files():
                 file_name = '/'.join(parts[1:])
                 
                 # 构造文件路径
-                if task_id == 'temp':
-                    file_path = os.path.join(video_processor.temp_dir, file_name)
-                else:
-                    file_path = os.path.join(video_processor.output_dir, task_id, file_name)
+                # 构造并校验安全路径，防止路径遍历
+                base_dir = video_processor.temp_dir if task_id == 'temp' else os.path.join(video_processor.output_dir, task_id)
+                base_abs = os.path.abspath(base_dir)
+                candidate = os.path.abspath(os.path.join(base_abs, file_name))
+                try:
+                    if os.path.commonpath([base_abs, candidate]) != base_abs:
+                        errors.append(f'{file_id}: 非法的文件路径')
+                        logging.warning(f"Illegal path detected: {candidate}")
+                        continue
+                except Exception as _e:
+                    errors.append(f'{file_id}: 非法的文件路径')
+                    logging.warning(f"Illegal path exception: {_e}")
+                    continue
+                file_path = candidate
                 
                 logging.info(f"Attempting to delete file: {file_path}")
                 
@@ -773,8 +893,14 @@ def delete_task_files(task_id):
                     'message': '临时目录不存在'
                 })
         else:
-            # 删除指定任务目录
-            task_dir = os.path.join(video_processor.output_dir, task_id)
+            # 删除指定任务目录（安全校验）
+            base_abs = os.path.abspath(video_processor.output_dir)
+            task_dir = os.path.abspath(os.path.join(base_abs, task_id))
+            try:
+                if os.path.commonpath([base_abs, task_dir]) != base_abs:
+                    return jsonify({'success': False, 'message': '非法的任务ID'}), 400
+            except Exception:
+                return jsonify({'success': False, 'message': '非法的任务ID'}), 400
             if os.path.exists(task_dir):
                 shutil.rmtree(task_dir)
                 
@@ -868,10 +994,13 @@ def test_siliconflow_connection(config):
         raise ValueError('API Key未提供')
     
     import requests
+    base_url = config.get('base_url') or 'https://api.siliconflow.cn/v1'
+    if not _is_safe_base_url(base_url):
+        raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
     headers = {'Authorization': f'Bearer {config["api_key"]}'}
     
     response = requests.get(
-        f"{config['base_url']}/models",
+        f"{base_url}/models",
         headers=headers,
         timeout=10
     )
@@ -908,6 +1037,8 @@ def test_siliconflow_text_processor(config):
     import requests
     headers = {'Authorization': f'Bearer {config["api_key"]}'}
     base_url = config.get('base_url') or 'https://api.siliconflow.cn/v1'
+    if not _is_safe_base_url(base_url):
+        raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
     
     response = requests.get(
         f"{base_url}/models",
@@ -937,6 +1068,8 @@ def test_openai_connection(config, is_text_processor=False):
             raise ValueError('自定义提供商需要提供Base URL')
     
     try:
+        if config.get('base_url') and not _is_safe_base_url(config.get('base_url')):
+            raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
         client = openai.OpenAI(
             api_key=config.get('api_key'),
             base_url=config.get('base_url') if config.get('base_url') else None
@@ -983,8 +1116,9 @@ def test_gemini_connection(config, is_text_processor=False):
     genai.configure(api_key=config.get('api_key'))
     
     if config.get('base_url'):
-        # 如果有自定义base_url，需要设置（Gemini可能需要特殊处理）
-        pass
+        # 基本校验 base_url
+        if not _is_safe_base_url(config.get('base_url')):
+            raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
     
     model = genai.GenerativeModel(config.get('model', 'gemini-pro'))
     response = model.generate_content("Hello")
@@ -1000,11 +1134,16 @@ def test_gemini_connection(config, is_text_processor=False):
 def stop_all_tasks():
     """停止所有正在处理的任务"""
     try:
-        # 获取所有正在处理的任务
-        processing_tasks = []
-        for task_id, task in video_processor.tasks.items():
-            if task.status == "processing":
-                processing_tasks.append(task_id)
+        # 提前处理并返回，修正文案与避免乱码
+        processing_tasks = video_processor.cancel_all_processing()
+        if not processing_tasks:
+            return safe_json_response(
+                success=True,
+                message="当前没有正在处理的任务",
+                data={'stopped_tasks': []}
+            )
+        # 标记取消所有正在处理的任务
+        processing_tasks = video_processor.cancel_all_processing()
         
         if not processing_tasks:
             return safe_json_response(
@@ -1022,12 +1161,22 @@ def stop_all_tasks():
                 task.error_message = "用户手动停止任务"
                 task.progress = 0
                 task.progress_stage = "已停止"
+                task.progress_stage = "已停止"
                 task.progress_detail = "任务已被用户手动停止"
                 stopped_count += 1
                 logging.info(f"手动停止任务: {task_id}")
         
         # 保存任务状态
         video_processor.save_tasks_to_disk()
+
+        return safe_json_response(
+            success=True,
+            message=f"成功停止 {stopped_count} 个任务",
+            data={
+                'stopped_tasks': processing_tasks,
+                'stopped_count': stopped_count
+            }
+        )
         
         return safe_json_response(
             success=True,
