@@ -11,6 +11,9 @@ except ImportError:
 from typing import Dict, Any, Optional, List
 from app.config.settings import Config
 import re
+import json
+import time
+import random
 
 class TextProcessor:
     def __init__(self, openai_config=None, gemini_config=None, siliconflow_config=None):
@@ -86,7 +89,77 @@ class TextProcessor:
                 )
             except Exception:
                 self.siliconflow_client = None
-    
+
+    def _extract_retry_after(self, exc: Exception) -> Optional[float]:
+        """从异常中提取 Retry-After 秒数，如果没有则返回 None"""
+        try:
+            resp = getattr(exc, 'response', None)
+            if resp is None:
+                return None
+            headers = getattr(resp, 'headers', {}) or {}
+            for key in ('retry-after', 'Retry-After', 'x-ratelimit-reset', 'X-RateLimit-Reset'):
+                if key in headers:
+                    val = headers[key]
+                    try:
+                        return float(val)
+                    except Exception:
+                        continue
+            return None
+        except Exception:
+            return None
+
+    def _chat_with_retry(self, client, *, model: str, messages: List[Dict[str, str]],
+                         temperature: float = 0.3, max_tokens: Optional[int] = None,
+                         provider_label: str = 'siliconflow', max_retries: int = 5):
+        """统一的带限流重试的聊天调用"""
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+                # 诊断日志：finish_reason 和 token 用量（若可用）
+                try:
+                    finish_reason = getattr(resp.choices[0], 'finish_reason', None)
+                    usage = getattr(resp, 'usage', None)
+                    if usage:
+                        pt = getattr(usage, 'prompt_tokens', None)
+                        ct = getattr(usage, 'completion_tokens', None)
+                        tt = getattr(usage, 'total_tokens', None)
+                        print(f"模型: {model} finish_reason={finish_reason}, tokens: prompt={pt}, completion={ct}, total={tt}")
+                    else:
+                        print(f"模型: {model} finish_reason={finish_reason}")
+                except Exception:
+                    pass
+                return resp
+            except Exception as e:
+                last_err = e
+                # 判断是否为限流/429 或临时服务错误
+                status = getattr(e, 'status_code', None)
+                if status is None:
+                    resp = getattr(e, 'response', None)
+                    status = getattr(resp, 'status_code', None) if resp is not None else None
+                msg = str(e) if e else ''
+                is_rate_limited = (status == 429) or ('429' in msg) or ('Too Many Requests' in msg)
+                is_server_error = (status is not None and 500 <= int(status) < 600)
+                if is_rate_limited or is_server_error:
+                    ra = self._extract_retry_after(e)
+                    if ra is not None and ra >= 0:
+                        wait_s = float(ra)
+                    else:
+                        base = 1.5
+                        wait_s = min(base * (2 ** attempt) + random.uniform(0, 0.5), 12.0)
+                    print(f"{provider_label} 调用受限/繁忙 (status={status})，{wait_s:.2f}s 后重试 [{attempt+1}/{max_retries}]")
+                    time.sleep(wait_s)
+                    continue
+                # 非限流错误直接抛出
+                raise
+        # 超过最大重试次数
+        raise Exception(f"{provider_label} 连续失败，超过重试次数: {last_err}")
+
     def set_runtime_config(self, text_processor_config: dict):
         """设置运行时配置"""
         if not text_processor_config:
@@ -292,6 +365,8 @@ class TextProcessor:
                     raise ValueError(f"不支持的服务提供商: {provider}")
                 
                 results.append(result)
+                # 轻量节流，避免瞬时触发RPM限流
+                time.sleep(random.uniform(0.3, 0.8))
                 print(f"第 {i+1} 段处理成功，结果长度: {len(result)} 字符")
                 
             except Exception as e:
@@ -319,18 +394,18 @@ class TextProcessor:
             max_tokens = min(max(estimated_tokens + 2000, 8000), self.MAX_TOKENS_PER_REQUEST)
         
         try:
-            response = self.siliconflow_client.chat.completions.create(
+            response = self._chat_with_retry(
+                self.siliconflow_client,
                 model=model,
                 messages=[
                     {"role": "system", "content": prompt_template},
                     {"role": "user", "content": text}
                 ],
                 temperature=0.3,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                provider_label='siliconflow'
             )
-            
             return response.choices[0].message.content.strip()
-            
         except Exception as e:
             raise Exception(f"SiliconFlow处理失败: {e}")
     
@@ -349,18 +424,18 @@ class TextProcessor:
             max_tokens = min(max(estimated_tokens + 2000, 8000), self.MAX_TOKENS_PER_REQUEST)
         
         try:
-            response = self.openai_client.chat.completions.create(
+            response = self._chat_with_retry(
+                self.openai_client,
                 model=model,
                 messages=[
                     {"role": "system", "content": prompt_template},
                     {"role": "user", "content": text}
                 ],
                 temperature=0.3,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                provider_label='openai'
             )
-            
             return response.choices[0].message.content.strip()
-            
         except Exception as e:
             raise Exception(f"OpenAI处理失败: {e}")
     
@@ -496,7 +571,6 @@ class TextProcessor:
                 raise ValueError(f"不支持的服务提供商: {provider}")
             
             # 尝试解析JSON
-            import json
             return json.loads(result)
             
         except json.JSONDecodeError:
