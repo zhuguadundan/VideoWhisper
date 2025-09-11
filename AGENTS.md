@@ -12,7 +12,7 @@ This document helps contributors and agents work consistently across the repo. F
 - Setup (venv): `python -m venv .venv && . .venv/bin/activate` (Windows: `.venv\Scripts\activate`) then `pip install -r requirements.txt`.
 - Run server: `python run.py` then open `http://localhost:5000` (HTTPS uses self-signed on 5443 if enabled).
 - Docker (recommended): `docker-compose up -d` or build `./build-docker.sh` / `build-docker.bat`.
-- Smoke check: `curl http://localhost:5000/api/health`.
+- Smoke check: `curl http://localhost:5000/api/providers`.
 
 ## Coding Style & Naming Conventions
 - Python (PEP 8), 4-space indentation, UTF-8. Prefer type hints and module-level docstrings.
@@ -22,7 +22,7 @@ This document helps contributors and agents work consistently across the repo. F
 
 ## Testing Guidelines
 - No formal suite in repo. Add new tests under `tests/` as `test_*.py` (pytest preferred). Keep unit tests fast and deterministic.
-- Minimum smoke tests: `/api/health`, `/api/providers`, and a simple end-to-end flow via the UI.
+- Minimum smoke tests: `/api/providers` and a simple end-to-end flow via the UI.
 - Mock external APIs (SiliconFlow/OpenAI/Gemini) and filesystem when possible.
 
 ## Commit & Pull Request Guidelines

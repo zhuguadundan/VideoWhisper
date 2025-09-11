@@ -92,14 +92,14 @@ echo.
 echo 💡 Tips:
 echo    - HTTPS uses self-signed certificate (browser warning expected)
 echo    - To disable HTTPS: set HTTPS_ENABLED=false in docker-compose.yml
-echo    - API health check: curl http://localhost:5000/api/health
-echo    - HTTPS health check: curl -k https://localhost:5443/api/health
+echo    - API check: curl http://localhost:5000/api/providers
+echo    - HTTPS check: curl -k https://localhost:5443/api/providers
 echo.
 echo 🚀 Quick test commands:
 echo    # Test HTTP
-echo    curl -f http://localhost:5000/api/health
+echo    curl -f http://localhost:5000/api/providers
 echo    # Test HTTPS
-echo    curl -k -f https://localhost:5443/api/health
+echo    curl -k -f https://localhost:5443/api/providers
 echo    # View logs
 echo    %COMPOSE_CMD% logs -f videowhisper
 echo ============================================

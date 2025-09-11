@@ -51,9 +51,7 @@ RUN sed -i 's/\r$//' /app/docker-entrypoint.sh && \
 # 暴露端口
 EXPOSE 5000 5443
 
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5000/api/health || exit 1
+# 健康检查已移除，避免周期性请求造成日志噪声
 
 # 设置启动命令
 CMD ["/app/docker-entrypoint.sh"]
