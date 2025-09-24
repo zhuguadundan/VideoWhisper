@@ -257,12 +257,12 @@ function hideConfigWarning() {
     const submitBtn = document.getElementById('submitUrlBtn');
     if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.innerHTML = '<i class="fas fa-sparkles me-2"></i>开始智能处理（仅音频）';
+        submitBtn.innerHTML = '<i class="fas fa-bolt me-2"></i>开始智能处理（仅音频）';
     }
     const submitUploadBtn = document.getElementById('submitUploadBtn');
     if (submitUploadBtn) {
         submitUploadBtn.disabled = false;
-        submitUploadBtn.innerHTML = '<i class="fas fa-sparkles me-2"></i>开始智能处理';
+        submitUploadBtn.innerHTML = '<i class="fas fa-bolt me-2"></i>开始智能处理';
     }
 }
 
@@ -736,7 +736,7 @@ function resetUploadForm() {
     const submitBtn = document.getElementById('submitUploadBtn');
     if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-sparkles me-2"></i>开始智能处理';
+        submitBtn.innerHTML = '<i class="fas fa-bolt me-2"></i>开始智能处理';
     }
     
     const uploadContent = document.getElementById('uploadContent');
@@ -977,7 +977,7 @@ async function handleUrlFormSubmit(e) {
     } finally {
         // 重新启用提交按钮
         submitBtn.disabled = false;
-        submitBtn.innerHTML = '<i class="fas fa-sparkles me-2"></i>开始智能处理（仅音频）';
+        submitBtn.innerHTML = '<i class="fas fa-bolt me-2"></i>开始智能处理（仅音频）';
         submitBtn.classList.remove('loading-shimmer');
     }
 }
@@ -1219,7 +1219,7 @@ function getStageIcon(stage) {
     const icons = {
         '获取视频信息': '<i class="fas fa-info-circle text-primary me-1"></i>',
         '下载音频': '<i class="fas fa-download text-info me-1"></i>',
-        '处理音频': '<i class="fas fa-waveform-path text-warning me-1"></i>',
+        '处理音频': '<i class="fas fa-wave-square text-warning me-1"></i>',
         '语音转文字': '<i class="fas fa-microphone text-success me-1"></i>',
         '生成逐字稿': '<i class="fas fa-robot text-primary me-1 fa-spin"></i>',
         '生成总结报告': '<i class="fas fa-brain text-info me-1 fa-spin"></i>',
@@ -1244,7 +1244,7 @@ function showTranscriptPreview(preview, fullTranscript) {
     }
     
     previewDiv.innerHTML = `
-        <h6><i class="fas fa-file-text me-2 text-primary"></i>逐字稿预览 <small class="text-muted">(可先查看内容)</small></h6>
+        <h6><i class="fas fa-file-lines me-2 text-primary"></i>逐字稿预览 <small class="text-muted">(可先查看内容)</small></h6>
         <div class="transcript-content" style="max-height: 200px; overflow-y: auto; background: white; padding: 10px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 0.9em; line-height: 1.5;">
             ${preview.replace(/\n/g, '<br>')}
         </div>
@@ -1274,7 +1274,7 @@ function showFullTranscript() {
             <div class="modal-dialog modal-lg">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title"><i class="fas fa-file-text me-2"></i>完整逐字稿</h5>
+                        <h5 class="modal-title"><i class="fas fa-file-lines me-2"></i>完整逐字稿</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
