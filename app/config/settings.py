@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# 计算项目根目录（以当前文件为锚点）
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key'
     
@@ -15,6 +18,18 @@ class Config:
         if cls._config_cache is None:
             cls._config_cache = cls.load_config()
         return cls._config_cache
+
+    @staticmethod
+    def project_root() -> str:
+        """返回项目根目录绝对路径"""
+        return _PROJECT_ROOT
+
+    @staticmethod
+    def resolve_path(path: str) -> str:
+        """将相对路径解析为基于项目根目录的绝对路径"""
+        if not path:
+            return path
+        return path if os.path.isabs(path) else os.path.abspath(os.path.join(_PROJECT_ROOT, path))
     
     # HTTPS配置 - 优先使用环境变量，然后使用配置文件（默认启用HTTPS）
     HTTPS_ENABLED = os.environ.get('HTTPS_ENABLED', 'true').lower() == 'true'
@@ -61,14 +76,18 @@ class Config:
             config['cert_file'] = https_config.get('cert_file', 'config/cert.pem')
             config['key_file'] = https_config.get('key_file', 'config/key.pem')
         
+        # 证书路径解析为绝对路径（支持相对路径配置）
+        config['cert_file'] = cls.resolve_path(config.get('cert_file', 'config/cert.pem'))
+        config['key_file'] = cls.resolve_path(config.get('key_file', 'config/key.pem'))
+        
         return config
     
     @staticmethod
     def load_config():
-        # 优先检查config文件夹中的配置文件，兼容Docker部署
+        # 以项目根目录为基准查找配置，兼容不同工作目录启动
         config_paths = [
-            'config/config.yaml',     # Docker部署时的路径
-            'config.yaml',            # 传统部署时的路径
+            os.path.join(_PROJECT_ROOT, 'config', 'config.yaml'),
+            os.path.join(_PROJECT_ROOT, 'config.yaml'),
         ]
         
         for config_path in config_paths:
@@ -77,9 +96,9 @@ class Config:
                     return yaml.safe_load(f)
         
         # 如果都找不到，抛出异常
-        raise FileNotFoundError("未找到配置文件 config.yaml，请确保配置文件存在")
+        raise FileNotFoundError("未找到配置文件 config.yaml，请确保配置文件存在于项目根目录或 config/ 目录下")
     
     @classmethod
     def get_api_config(cls, service):
-        config = cls.load_config()
-        return config['apis'].get(service, {})
+        config = cls.get_config()
+        return (config.get('apis') or {}).get(service, {})

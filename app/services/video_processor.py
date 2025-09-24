@@ -42,7 +42,8 @@ class VideoProcessor:
         output_dir = self.config['system']['output_dir']
         if not os.path.isabs(output_dir):
             # 如果是相对路径，基于项目根目录
-            self.output_dir = os.path.abspath(output_dir)
+            from app.config.settings import Config as _Cfg
+            self.output_dir = _Cfg.resolve_path(output_dir)
         else:
             self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
@@ -50,7 +51,8 @@ class VideoProcessor:
         # 添加临时目录配置
         temp_dir = self.config['system']['temp_dir']
         if not os.path.isabs(temp_dir):
-            self.temp_dir = os.path.abspath(temp_dir)
+            from app.config.settings import Config as _Cfg
+            self.temp_dir = _Cfg.resolve_path(temp_dir)
         else:
             self.temp_dir = temp_dir
         os.makedirs(self.temp_dir, exist_ok=True)
