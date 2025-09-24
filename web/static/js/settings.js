@@ -303,9 +303,9 @@ class APIConfigManager {
         toast.innerHTML = `
             <div class="toast-header">
                 <div class="toast-icon me-2">
-                    <i class="fas ${type === 'success' ? 'fa-check-circle text-success' : 
-                                   type === 'error' ? 'fa-exclamation-circle text-danger' : 
-                                   'fa-info-circle text-warning'}"></i>
+                    <i class="fas ${type === 'success' ? 'fa-circle-check text-success' : 
+                                   type === 'error' ? 'fa-circle-exclamation text-danger' : 
+                                   'fa-circle-info text-warning'}"></i>
                 </div>
                 <strong class="me-auto">${title}</strong>
                 <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
@@ -642,7 +642,7 @@ class APIConfigManager {
                                             </li>
                                         </ol>
                                         <div class="alert alert-warning">
-                                            <i class="fas fa-exclamation-triangle me-2"></i>
+                                            <i class="fas fa-triangle-exclamation me-2"></i>
                                             <strong>重要：</strong>仓库名称必须准确填写，否则Obsidian无法正确创建文件
                                         </div>
                                     </div>
@@ -652,7 +652,7 @@ class APIConfigManager {
                             <div class="accordion-item">
                                 <h2 class="accordion-header">
                                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#usage-guide">
-                                        <i class="fas fa-cog me-2"></i>使用方法
+                                        <i class="fas fa-gear me-2"></i>使用方法
                                     </button>
                                 </h2>
                                 <div id="usage-guide" class="accordion-collapse collapse">
@@ -943,7 +943,7 @@ function showCookieGuide() {
                     </div>
                     
                     <div class="alert alert-warning mt-3">
-                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <i class="fas fa-triangle-exclamation me-2"></i>
                         <strong>安全提示：</strong>
                         <ul class="mb-0 mt-2">
                             <li>Cookies 包含您的登录信息，请勿分享给他人</li>
@@ -1052,7 +1052,7 @@ window.showCookieGuide = function() {
                         </div>
                         
                         <div class="alert alert-warning mt-3">
-                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <i class="fas fa-triangle-exclamation me-2"></i>
                             <strong>安全提示：</strong>
                             <ul class="mb-0 mt-2">
                                 <li>Cookies 包含您的登录信息，请勿分享给他人</li>

@@ -24,7 +24,7 @@
                                     <i class="fas fa-folder me-2"></i>文件管理
                                 </a>
                                 <a href="/settings" class="btn btn-outline-primary btn-modern">
-                                    <i class="fas fa-cog me-2"></i>API设置
+                                    <i class="fas fa-gear me-2"></i>API设置
                                 </a>
                             </div>
                         </div>
@@ -124,7 +124,7 @@
                                                 <!-- 文件拖拽上传区域 -->
                                                 <div class="upload-area" id="uploadArea">
                                                     <div class="upload-content" id="uploadContent">
-                                                        <i class="fas fa-cloud-upload-alt fa-3x mb-3 text-muted"></i>
+                                                        <i class="fas fa-cloud-arrow-up fa-3x mb-3 text-muted"></i>
                                                         <h5 class="text-muted mb-2">拖拽文件到此处</h5>
                                                         <p class="text-muted mb-3">或者</p>
                                                         <div class="upload-buttons">
@@ -132,7 +132,7 @@
                                                                 <i class="fas fa-folder-open me-2"></i>选择文件
                                                             </button>
                                                             <button type="button" class="btn btn-outline-secondary" id="clearFileBtn" style="display: none;">
-                                                                <i class="fas fa-times me-2"></i>清除
+                                                                <i class="fas fa-xmark me-2"></i>清除
                                                             </button>
                                                         </div>
                                                     </div>
@@ -156,7 +156,7 @@
                                                 <!-- 文件信息显示 -->
                                                 <div class="file-info mt-3" id="fileInfo" style="display: none;">
                                                     <div class="alert alert-info d-flex align-items-center">
-                                                        <i class="fas fa-info-circle me-2"></i>
+                                                        <i class="fas fa-circle-info me-2"></i>
                                                         <div>
                                                             <strong>已选择文件：</strong>
                                                             <span id="selectedFileName"></span>
@@ -204,7 +204,7 @@
                     <div class="card glass-card">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="card-title mb-0">
-                                <i class="fas fa-cog fa-spin me-2"></i>
+                                <i class="fas fa-gear fa-spin me-2"></i>
                                 处理状态
                             </h5>
                             <small id="taskId" class="text-muted"></small>
@@ -251,7 +251,7 @@
                     <div class="card glass-card">
                         <div class="card-header d-flex justify-content-between align-items-center">
                             <h5 class="card-title mb-0">
-                                <i class="fas fa-check-circle text-success me-2"></i>
+                                <i class="fas fa-circle-check text-success me-2"></i>
                                 处理结果
                             </h5>
                             <div class="btn-group" role="group">
@@ -420,7 +420,7 @@
                                         <i class="fas fa-stop me-2"></i>停止所有任务
                                     </button>
                                     <button type="button" class="btn btn-outline-primary btn-modern" id="refreshTasks">
-                                        <i class="fas fa-sync-alt me-2"></i>刷新列表
+                                        <i class="fas fa-rotate-right me-2"></i>刷新列表
                                     </button>
                                 </div>
                             </div>
@@ -433,7 +433,7 @@
                                             <th><i class="fas fa-video me-2"></i>视频标题</th>
                                             <th><i class="fas fa-signal me-2"></i>状态</th>
                                             <th><i class="fas fa-calendar me-2"></i>创建时间</th>
-                                            <th><i class="fas fa-cogs me-2"></i>操作</th>
+                                            <th><i class="fas fa-gears me-2"></i>操作</th>
                                         </tr>
                                     </thead>
                                     <tbody id="tasksTableBody">
