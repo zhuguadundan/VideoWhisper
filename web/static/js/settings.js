@@ -787,8 +787,46 @@ function onProviderChange() {
     configManager.updateModelPlaceholder(provider);
 }
 
+// 主题切换功能
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    updateThemeToggleButton(savedTheme);
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateThemeToggleButton(newTheme);
+}
+
+function updateThemeToggleButton(theme) {
+    const themeToggle = document.getElementById('themeToggle');
+    const themeText = document.getElementById('themeText');
+    const themeIcon = themeToggle.querySelector('i');
+
+    if (theme === 'dark') {
+        themeIcon.className = 'fas fa-sun me-2';
+        themeText.textContent = '亮色模式';
+    } else {
+        themeIcon.className = 'fas fa-moon me-2';
+        themeText.textContent = '暗色模式';
+    }
+}
+
 // 页面加载完成后自动加载配置
 document.addEventListener('DOMContentLoaded', function() {
+    // 初始化主题
+    initTheme();
+
+    // 添加主题切换事件监听器
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', toggleTheme);
+    }
+
     configManager.loadConfig();
     
     // 绑定表单提交事件

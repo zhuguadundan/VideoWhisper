@@ -6,43 +6,23 @@
     <title>VideoWhisper - 文件管理</title>
     <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.bootcdn.net/ajax/libs/bootstrap-icons/1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     <style>
-        /* 覆盖深蓝色背景，使用白色背景 */
+        /* 现代极简文件管理页面样式 */
         body {
-            background: #ffffff !important;
-            min-height: 100vh;
+            background-color: var(--bg-secondary) !important;
+            transition: background-color 0.3s ease;
         }
-        
-        .bg-gradient {
-            display: none !important;
-        }
-        
-        /* 调整导航栏颜色 */
-        .navbar-brand {
-            color: #0d6efd !important;
-        }
-        
-        .nav-link {
-            color: #495057 !important;
-        }
-        
-        .nav-link.active {
-            color: #0d6efd !important;
-            font-weight: 600;
-        }
-        
-        .nav-link:hover {
-            color: #0d6efd !important;
-        }
-        
-        /* 调整统计卡片使用绿色渐变 */
+
+        /* 统计卡片样式 */
         .stats-card {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            background: var(--primary-500);
             color: white;
-            border-radius: 15px;
-            padding: 20px;
-            margin-bottom: 20px;
+            border-radius: var(--radius-lg);
+            padding: var(--space-5);
+            margin-bottom: var(--space-5);
+            box-shadow: var(--shadow-sm);
         }
         
         .file-item {
@@ -128,7 +108,10 @@
                     <i class="bi bi-camera-reels-fill text-primary"></i>
                     VideoWhisper
                 </a>
-                <div class="navbar-nav ms-auto">
+                <div class="navbar-nav ms-auto d-flex align-items-center">
+                    <button id="themeToggle" class="btn btn-outline-primary btn-modern me-3">
+                        <i class="fas fa-moon me-1"></i><span id="themeText">暗色</span>
+                    </button>
                     <a class="nav-link" href="/">
                         <i class="bi bi-house"></i> 首页
                     </a>

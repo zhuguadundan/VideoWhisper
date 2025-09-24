@@ -5,6 +5,41 @@ let selectedFile = null;
 let uploadTaskId = null;
 let uploadConfig = null;
 
+// 主题切换功能
+function initTheme() {
+    // 从localStorage获取保存的主题
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+
+    // 更新主题切换按钮
+    updateThemeToggleButton(savedTheme);
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+
+    // 更新按钮显示
+    updateThemeToggleButton(newTheme);
+}
+
+function updateThemeToggleButton(theme) {
+    const themeToggle = document.getElementById('themeToggle');
+    const themeText = document.getElementById('themeText');
+    const themeIcon = themeToggle.querySelector('i');
+
+    if (theme === 'dark') {
+        themeIcon.className = 'fas fa-sun me-2';
+        themeText.textContent = '亮色模式';
+    } else {
+        themeIcon.className = 'fas fa-moon me-2';
+        themeText.textContent = '暗色模式';
+    }
+}
+
 // 辅助函数：获取API配置
 function getApiConfig() {
     try {
@@ -89,6 +124,15 @@ function showToast(type, title, message) {
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
+    // 初始化主题
+    initTheme();
+
+    // 添加主题切换事件监听器
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', toggleTheme);
+    }
+
     initializeEventListeners();
     initializeFileUpload();
     loadAvailableProviders();
@@ -143,6 +187,10 @@ async function loadAvailableProviders() {
             
             // 如果有配置，隐藏警告
             hideConfigWarning();
+            const uploadSel = document.getElementById('uploadLlmProvider');
+            if (uploadSel) {
+                uploadSel.innerHTML = select.innerHTML;
+            }
         } else {
             // 没有可用的提供商，显示警告
             const option = document.createElement('option');
@@ -151,6 +199,11 @@ async function loadAvailableProviders() {
             option.disabled = true;
             option.selected = true;
             select.appendChild(option);
+            
+            const uploadSel = document.getElementById('uploadLlmProvider');
+            if (uploadSel) {
+                uploadSel.innerHTML = select.innerHTML;
+            }
             
             showConfigWarning();
         }
@@ -186,6 +239,11 @@ function showConfigWarning() {
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fas fa-cog me-2"></i>请先配置API';
     }
+    const submitUploadBtn = document.getElementById('submitUploadBtn');
+    if (submitUploadBtn) {
+        submitUploadBtn.disabled = true;
+        submitUploadBtn.innerHTML = '<i class="fas fa-cog me-2"></i>请先配置API';
+    }
 }
 
 // 隐藏配置警告
@@ -200,6 +258,11 @@ function hideConfigWarning() {
     if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<i class="fas fa-sparkles me-2"></i>开始智能处理（仅音频）';
+    }
+    const submitUploadBtn = document.getElementById('submitUploadBtn');
+    if (submitUploadBtn) {
+        submitUploadBtn.disabled = false;
+        submitUploadBtn.innerHTML = '<i class="fas fa-sparkles me-2"></i>开始智能处理';
     }
 }
 

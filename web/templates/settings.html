@@ -8,45 +8,19 @@
     <link href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
     <style>
-        /* 覆盖深蓝色背景，使用白色背景 */
+        /* 现代极简设置页面样式 */
         body {
-            background: #ffffff !important;
-            min-height: 100vh;
+            background-color: var(--bg-secondary) !important;
+            transition: background-color 0.3s ease;
         }
-        
-        .bg-gradient {
-            display: none !important;
-        }
-        
-        /* 调整按钮样式适应白色背景 */
-        .btn-outline-primary {
-            color: #0d6efd;
-            border-color: #0d6efd;
-        }
-        
-        .btn-outline-primary:hover {
-            background-color: #0d6efd;
-            border-color: #0d6efd;
-            color: #ffffff;
-        }
-        
-        .btn-outline-secondary {
-            color: #6c757d;
-            border-color: #6c757d;
-        }
-        
-        .btn-outline-secondary:hover {
-            background-color: #6c757d;
-            border-color: #6c757d;
-            color: #ffffff;
-        }
-        
+
         .security-notice {
-            background: linear-gradient(135deg, #ffeaa7, #fab1a0);
-            border-left: 4px solid #e17055;
-            border-radius: 8px;
-            padding: 1rem;
-            margin-bottom: 2rem;
+            background: var(--warning-500);
+            color: white;
+            border-radius: var(--radius-lg);
+            padding: var(--space-4);
+            margin-bottom: var(--space-6);
+            border: none;
         }
         .api-section {
             border: 1px solid #dee2e6;
@@ -121,13 +95,18 @@
             <div class="col-lg-10 mx-auto">
                 <!-- 导航 -->
                 <div class="mb-4">
-                    <div class="btn-group">
-                        <a href="/" class="btn btn-outline-primary">
-                            <i class="fas fa-arrow-left me-2"></i>返回首页
-                        </a>
-                        <a href="/files" class="btn btn-outline-secondary">
-                            <i class="fas fa-folder me-2"></i>文件管理
-                        </a>
+                    <div class="d-flex justify-content-between">
+                        <div class="btn-group">
+                            <a href="/" class="btn btn-outline-primary btn-modern">
+                                <i class="fas fa-arrow-left me-2"></i>返回首页
+                            </a>
+                            <a href="/files" class="btn btn-outline-primary btn-modern">
+                                <i class="fas fa-folder me-2"></i>文件管理
+                            </a>
+                        </div>
+                        <button id="themeToggle" class="btn btn-outline-primary btn-modern">
+                            <i class="fas fa-moon me-2"></i><span id="themeText">暗色模式</span>
+                        </button>
                     </div>
                 </div>
 

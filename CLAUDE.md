@@ -23,14 +23,11 @@ pip install -r requirements.txt
 
 ### Testing
 ```cmd
-# Simple test - validates basic system components
-python test_simple.py
+# Install pytest for testing
+pip install pytest
 
-# Complete integration test - full pipeline testing
-python test_complete.py
-
-# Basic functionality test - core feature validation
-python test.py
+# Run basic functionality tests
+pytest -q
 ```
 
 ### FFmpeg Installation
@@ -52,7 +49,7 @@ docker-compose ps             # View status
 
 ## Architecture Overview
 
-**VideoWhisper** is a video-to-text processing system with asynchronous task management built on Flask. The system processes videos through a multi-stage pipeline with real-time progress tracking.
+**VideoWhisper** (v3.6.0) is a video-to-text processing system with asynchronous task management built on Flask. The system processes videos through a multi-stage pipeline with real-time progress tracking and supports both HTTP and HTTPS protocols.
 
 ### Core Processing Pipeline
 Video URL → yt-dlp download → FFmpeg audio extraction → SiliconFlow speech-to-text → OpenAI/Gemini text processing → Structured output
@@ -137,14 +134,22 @@ apis:
 - Chinese language interface and error messages
 - Configurable file size limits and processing timeouts
 - Automatic task history retention
+- Dual protocol support: HTTP (port 5000) and HTTPS (port 5443) with auto-generated self-signed certificates
+- Security configurations including API host whitelisting and SSRF protection
+
+### HTTPS Configuration
+- Auto-generated self-signed certificates in `config/cert.pem` and `config/key.pem`
+- Configurable via `https` section in `config.yaml`
+- Dual-server mode: HTTP and HTTPS run simultaneously for compatibility
 
 ## Development Notes
 
 - **Asynchronous Pattern**: Uses threading, not async/await
 - **Error Handling**: Comprehensive Chinese error messages throughout
-- **Testing Strategy**: Three-tier testing (simple → complete → basic)
+- **Security**: Path traversal protection, sensitive data masking in logs, SSRF prevention
 - **File Management**: Automatic cleanup with configurable retention
 - **Progress Tracking**: Polling-based (not real-time WebSocket)
+- **Multi-Protocol**: Supports simultaneous HTTP/HTTPS serving
 
 ## Dependencies
 
@@ -163,7 +168,9 @@ The system includes simplified containerization support:
 - **Data Folders**: Direct folder mapping for `/app/output`, `/app/temp`, `/app/logs`
 
 Key container features:
-- Port 5000 exposed for web interface
+- Dual ports exposed: 5000 (HTTP) and 5443 (HTTPS)
 - Automatic restart policy
 - Simple folder-based persistence
 - Configuration stored in `./config/config.yaml`
+- Resource limits: 2GB memory, 1 CPU core
+- Self-signed certificate auto-generation

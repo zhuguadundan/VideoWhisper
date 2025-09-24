@@ -1,22 +1,106 @@
-/* 全局变量 */
+/* 现代极简设计系统 - 全局变量 */
 :root {
-    --primary-color: #667eea;
-    --primary-light: #764ba2;
-    --secondary-color: #f093fb;
-    --accent-color: #4facfe;
-    --text-primary: #2d3748;
-    --text-secondary: #718096;
-    --text-muted: #a0aec0;
+    /* 主色调系统 */
+    --primary-50: #eff6ff;
+    --primary-100: #dbeafe;
+    --primary-500: #0070f3;
+    --primary-600: #0056cc;
+    --primary-700: #0041a6;
+    --primary-900: #1e2832;
+
+    /* 中性色系统 */
+    --neutral-50: #fafafa;
+    --neutral-100: #f4f4f5;
+    --neutral-200: #e4e4e7;
+    --neutral-300: #d4d4d8;
+    --neutral-400: #a1a1aa;
+    --neutral-500: #71717a;
+    --neutral-600: #52525b;
+    --neutral-700: #3f3f46;
+    --neutral-800: #27272a;
+    --neutral-900: #18181b;
+
+    /* 状态色系统 */
+    --success-500: #22c55e;
+    --warning-500: #f59e0b;
+    --danger-500: #ef4444;
+    --info-500: #3b82f6;
+
+    /* 语义化颜色 */
+    --text-primary: var(--neutral-900);
+    --text-secondary: var(--neutral-600);
+    --text-muted: var(--neutral-500);
+    --text-inverse: var(--neutral-50);
+
     --bg-primary: #ffffff;
-    --bg-secondary: #f7fafc;
-    --bg-glass: rgba(255, 255, 255, 0.25);
-    --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-    --border-radius: 12px;
-    --border-radius-lg: 16px;
-    --border-radius-xl: 20px;
+    --bg-secondary: var(--neutral-50);
+    --bg-tertiary: var(--neutral-100);
+    --bg-surface: #ffffff;
+
+    --border-light: var(--neutral-200);
+    --border-medium: var(--neutral-300);
+    --border-strong: var(--neutral-400);
+
+    /* 现代化阴影系统 */
+    --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+
+    /* 现代化圆角系统 */
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-2xl: 20px;
+    --radius-full: 9999px;
+
+    /* 间距系统 */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+    --space-16: 64px;
+    --space-20: 80px;
+}
+
+/* 容器样式 */
+.container-fluid {
+    background-color: var(--bg-secondary);
+    transition: background-color 0.3s ease;
+}
+
+/* 暗色模式变量 */
+[data-theme="dark"] {
+    /* 暗色模式色彩重映射 */
+    --text-primary: var(--neutral-50);
+    --text-secondary: var(--neutral-300);
+    --text-muted: var(--neutral-400);
+    --text-inverse: var(--neutral-900);
+
+    --bg-primary: var(--neutral-900);
+    --bg-secondary: var(--neutral-800);
+    --bg-tertiary: var(--neutral-700);
+    --bg-surface: var(--neutral-800);
+
+    --border-light: var(--neutral-700);
+    --border-medium: var(--neutral-600);
+    --border-strong: var(--neutral-500);
+
+    /* 暗色模式阴影 */
+    --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+    --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
 }
 
 /* 基础样式 */
@@ -30,112 +114,114 @@ body {
     font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
     line-height: 1.6;
     color: var(--text-primary);
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background-color: var(--bg-secondary);
     min-height: 100vh;
-    position: relative;
     overflow-x: hidden;
+    transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* 背景渐变层 */
-.bg-gradient {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-    z-index: -2;
-}
+/* 现代极简背景 - 移除复杂渐变 */
 
-.bg-gradient::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.3) 0%, transparent 50%),
-                radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.3) 0%, transparent 50%),
-                radial-gradient(circle at 40% 40%, rgba(120, 219, 255, 0.2) 0%, transparent 50%);
-    z-index: -1;
-}
-
-/* Hero Section */
+/* 现代极简 Hero Section */
 .hero-section {
-    padding: 4rem 0;
-    position: relative;
-    z-index: 1;
+    padding: var(--space-20) 0 var(--space-16);
+    background-color: var(--bg-primary);
+    border-bottom: 1px solid var(--border-light);
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+    .hero-section {
+        padding: var(--space-16) 0 var(--space-12);
+    }
+
+    .hero-title {
+        font-size: 1.875rem;
+    }
+
+    .hero-subtitle {
+        font-size: 1rem;
+    }
+
+    .btn-group {
+        flex-direction: column;
+        gap: var(--space-2);
+    }
+
+    .btn-group .btn {
+        width: 100%;
+    }
 }
 
 .hero-icon {
-    width: 80px;
-    height: 80px;
+    width: 64px;
+    height: 64px;
     margin: 0 auto;
-    background: linear-gradient(135deg, var(--bg-glass), rgba(255, 255, 255, 0.4));
-    backdrop-filter: blur(20px);
-    border-radius: 50%;
+    background: var(--primary-500);
+    border-radius: var(--radius-xl);
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: var(--shadow-lg);
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: var(--shadow-sm);
 }
 
 .hero-icon i {
-    font-size: 2rem;
-    color: var(--bg-primary);
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    font-size: 1.5rem;
+    color: white;
 }
 
 .hero-title {
-    font-size: 3rem;
+    font-size: 2.25rem;
     font-weight: 700;
-    color: var(--bg-primary);
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    color: var(--text-primary);
     letter-spacing: -0.025em;
-    margin-bottom: 1rem;
+    margin-bottom: var(--space-4);
+    line-height: 1.2;
 }
 
 .hero-subtitle {
     font-size: 1.125rem;
-    color: rgba(255, 255, 255, 0.9);
-    font-weight: 400;
+    color: var(--text-primary);
+    line-height: 1.6;
     max-width: 600px;
     margin: 0 auto;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    font-weight: 400;
 }
 
-/* Glass Cards */
+/* 现代极简卡片 */
 .glass-card {
-    background: var(--bg-glass);
-    backdrop-filter: blur(20px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: var(--border-radius-lg);
-    box-shadow: var(--shadow-xl);
-    transition: all 0.3s ease;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    transition: all 0.2s ease;
 }
 
 .glass-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+    border-color: var(--border-medium);
+    box-shadow: var(--shadow-md);
 }
 
 .glass-card .card-header {
-    background: rgba(255, 255, 255, 0.1);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0;
+    background: transparent;
+    border-bottom: 1px solid var(--border-light);
+    padding: var(--space-6);
 }
 
-/* Icon Wrapper */
+.glass-card .card-body {
+    padding: var(--space-6);
+}
+
+/* 现代极简图标包装器 */
 .icon-wrapper {
     width: 48px;
     height: 48px;
-    background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
-    border-radius: var(--border-radius);
+    background: var(--primary-500);
+    border-radius: var(--radius-lg);
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-xs);
 }
 
 .icon-wrapper i {
@@ -143,21 +229,21 @@ body {
     font-size: 1.25rem;
 }
 
-/* Modern Form Controls */
+/* 现代极简表单控件 */
 .form-control-modern {
-    background: rgba(255, 255, 255, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    border-radius: var(--border-radius);
-    padding: 0.75rem 1rem;
-    transition: all 0.3s ease;
-    backdrop-filter: blur(10px);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    transition: all 0.2s ease;
+    color: var(--text-primary);
 }
 
 .form-control-modern:focus {
-    background: var(--bg-primary);
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
-    transform: translateY(-1px);
+    background: var(--bg-surface);
+    border-color: var(--primary-500);
+    box-shadow: 0 0 0 3px rgba(0, 112, 243, 0.1);
+    outline: none;
 }
 
 .form-floating > label {
@@ -165,78 +251,81 @@ body {
     font-weight: 500;
 }
 
-/* Platform Tags */
+/* 现代极简平台标签 */
 .platform-tags {
     display: flex;
-    gap: 0.5rem;
+    gap: var(--space-2);
     flex-wrap: wrap;
-    margin-top: 0.5rem;
+    margin-top: var(--space-2);
 }
 
 .platform-tag {
     display: inline-block;
-    padding: 0.25rem 0.75rem;
-    background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
-    color: white;
+    padding: var(--space-1) var(--space-3);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
     font-size: 0.75rem;
     font-weight: 500;
-    border-radius: 9999px;
-    box-shadow: var(--shadow-sm);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border-light);
     transition: all 0.2s ease;
 }
 
 .platform-tag:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
+    background: var(--primary-50);
+    color: var(--primary-700);
+    border-color: var(--primary-200);
 }
 
-/* Modern Buttons */
+/* 现代极简按钮 */
 .btn-modern {
-    background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+    background: var(--primary-500);
     border: none;
-    border-radius: var(--border-radius);
-    padding: 0.75rem 2rem;
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-6);
     font-weight: 600;
-    letter-spacing: 0.025em;
-    box-shadow: var(--shadow-md);
-    transition: all 0.3s ease;
-    position: relative;
-    overflow: hidden;
+    color: white;
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
+    box-shadow: var(--shadow-xs);
 }
 
 .btn-modern:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
+    background: var(--primary-600);
+    box-shadow: var(--shadow-sm);
+    color: white;
 }
 
-.btn-modern::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-    transition: left 0.5s ease;
-}
-
-.btn-modern:hover::before {
-    left: 100%;
+.btn-modern:active {
+    background: var(--primary-700);
+    box-shadow: var(--shadow-xs);
+    transform: translateY(1px);
 }
 
 .btn-outline-primary.btn-modern {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: transparent;
+    border: 1px solid var(--border-medium);
     color: var(--text-primary);
+    box-shadow: none;
 }
 
 .btn-outline-primary.btn-modern:hover {
-    background: var(--primary-color);
-    color: white;
+    background: var(--bg-tertiary);
+    border-color: var(--border-strong);
+    color: var(--text-primary);
 }
 
 .progress-bar {
     transition: width 0.3s ease;
+    background: var(--primary-500);
+    border-radius: var(--radius-sm);
+}
+
+/* 现代化进度条容器 */
+.progress {
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-sm);
+    height: 8px;
 }
 
 /* Cards and Content Areas */
@@ -409,30 +498,46 @@ body {
     background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
 }
 
-/* Modern Table */
+/* 现代极简表格 */
 .table-modern {
     margin-bottom: 0;
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
 .table-modern thead th {
     border-top: none;
-    border-bottom: 2px solid rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid var(--border-light);
     font-weight: 600;
     color: var(--text-primary);
-    background: var(--bg-secondary);
-    padding: 1rem;
+    background: var(--bg-tertiary);
+    padding: var(--space-4);
     font-size: 0.875rem;
-    letter-spacing: 0.025em;
+    text-align: left;
+}
+
+.table-modern thead th:first-child {
+    border-top-left-radius: var(--radius-lg);
+}
+
+.table-modern thead th:last-child {
+    border-top-right-radius: var(--radius-lg);
 }
 
 .table-modern tbody td {
-    padding: 1rem;
-    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    padding: var(--space-4);
+    border-top: 1px solid var(--border-light);
     vertical-align: middle;
+    color: var(--text-primary);
+    background: var(--bg-surface);
 }
 
 .table-modern tbody tr:hover {
-    background: rgba(102, 126, 234, 0.02);
+    background: var(--bg-tertiary);
+}
+
+.table-modern tbody tr:hover td {
+    background: var(--bg-tertiary);
 }
 
 /* Analysis Grid */

@@ -532,6 +532,44 @@ class FilesManager {
 }
 
 // 初始化文件管理器
+// 主题切换功能
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    updateThemeToggleButton(savedTheme);
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+    updateThemeToggleButton(newTheme);
+}
+
+function updateThemeToggleButton(theme) {
+    const themeToggle = document.getElementById('themeToggle');
+    const themeText = document.getElementById('themeText');
+    const themeIcon = themeToggle.querySelector('i');
+
+    if (theme === 'dark') {
+        themeIcon.className = 'fas fa-sun me-1';
+        themeText.textContent = '亮色';
+    } else {
+        themeIcon.className = 'fas fa-moon me-1';
+        themeText.textContent = '暗色';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    // 初始化主题
+    initTheme();
+
+    // 添加主题切换事件监听器
+    const themeToggle = document.getElementById('themeToggle');
+    if (themeToggle) {
+        themeToggle.addEventListener('click', toggleTheme);
+    }
+
     new FilesManager();
 });
