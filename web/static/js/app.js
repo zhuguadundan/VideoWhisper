@@ -91,19 +91,19 @@ function showToast(type, title, message) {
     
     switch(type) {
         case 'success':
-            iconClass = 'fas fa-check-circle text-success';
+            iconClass = 'fas fa-circle-check text-success';
             bgClass = 'bg-success';
             break;
         case 'error':
-            iconClass = 'fas fa-exclamation-circle text-danger';
+            iconClass = 'fas fa-circle-exclamation text-danger';
             bgClass = 'bg-danger';
             break;
         case 'warning':
-            iconClass = 'fas fa-exclamation-triangle text-warning';
+            iconClass = 'fas fa-triangle-exclamation text-warning';
             bgClass = 'bg-warning';
             break;
         default:
-            iconClass = 'fas fa-info-circle text-info';
+            iconClass = 'fas fa-circle-info text-info';
             bgClass = 'bg-info';
     }
     

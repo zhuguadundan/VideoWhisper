@@ -25,8 +25,9 @@ print = _log_print
 class AudioExtractor:
     def __init__(self):
         self.config = Config.load_config()
-        self.temp_dir = self.config['system']['temp_dir']
-        self.output_dir = self.config['system']['output_dir']
+        # 使用项目根锚定的绝对路径，避免 CWD 引起的漂移
+        self.temp_dir = Config.resolve_path(self.config['system']['temp_dir'])
+        self.output_dir = Config.resolve_path(self.config['system']['output_dir'])
         self.audio_format = self.config['system']['audio_format']
         self.sample_rate = self.config['system']['audio_sample_rate']
         

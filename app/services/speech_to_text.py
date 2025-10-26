@@ -31,7 +31,8 @@ class SpeechToText:
             self.config = Config.get_api_config('siliconflow')
         
         self.api_key = self.config.get('api_key', '')
-        self.base_url = self.config.get('base_url', '')
+        # 默认使用硅基流动正式基址，去掉结尾斜杠以便拼接端点
+        self.base_url = (self.config.get('base_url') or 'https://api.siliconflow.cn/v1').rstrip('/')
         self.model = self.config.get('model', 'FunAudioLLM/SenseVoiceSmall')
         
         # 不在初始化时检查API密钥，而是在使用时检查
@@ -41,7 +42,7 @@ class SpeechToText:
         if api_config:
             self.config = api_config
             self.api_key = self.config.get('api_key', '')
-            self.base_url = self.config.get('base_url', '')
+            self.base_url = (self.config.get('base_url') or 'https://api.siliconflow.cn/v1').rstrip('/')
             self.model = self.config.get('model', 'FunAudioLLM/SenseVoiceSmall')
     
     def transcribe_audio(self, audio_path: str, language: str = 'auto') -> Dict[str, Any]:
@@ -70,8 +71,9 @@ class SpeechToText:
                         'model': self.model
                     }
                     
+                    base = (self.base_url or 'https://api.siliconflow.cn/v1').rstrip('/')
                     response = requests.post(
-                        f"{self.base_url}/audio/transcriptions",
+                        f"{base}/audio/transcriptions",
                         headers=headers,
                         files=files,
                         data=data,

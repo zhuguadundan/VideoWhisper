@@ -29,20 +29,12 @@ class FileManager:
     def __init__(self):
         self.config = Config.load_config()
         
-        # 使用绝对路径，确保Docker环境兼容
+        # 使用项目根锚定路径，确保无论 CWD/Docker 环境一致
         temp_dir = self.config['system']['temp_dir']
         output_dir = self.config['system']['output_dir']
-        
-        # 转换为绝对路径
-        if not os.path.isabs(temp_dir):
-            self.temp_dir = os.path.abspath(temp_dir)
-        else:
-            self.temp_dir = temp_dir
-            
-        if not os.path.isabs(output_dir):
-            self.output_dir = os.path.abspath(output_dir)
-        else:
-            self.output_dir = output_dir
+
+        self.temp_dir = Config.resolve_path(temp_dir)
+        self.output_dir = Config.resolve_path(output_dir)
         
         self.max_temp_tasks = 3  # 保留最近3次任务的临时文件
         

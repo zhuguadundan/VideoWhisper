@@ -66,55 +66,7 @@ def create_app():
         """判断是否是API请求"""
         return request.path.startswith('/api/')
     
-    # 配置全局错误处理器
-    @app.errorhandler(500)
-    def handle_internal_error(e):
-        logging.error(f"Internal Server Error: {str(e)}")
-        logging.error(traceback.format_exc())
-        
-        if is_api_request():
-            return jsonify({
-                'success': False,
-                'error': '服务器内部错误',
-                'message': '系统出现内部错误，请稍后重试。如果问题持续存在，请联系管理员。'
-            }), 500
-        else:
-            return f"<h1>服务器错误</h1><p>系统出现内部错误，请稍后重试</p>", 500
-    
-    @app.errorhandler(404)
-    def handle_not_found(e):
-        if is_api_request():
-            return jsonify({
-                'success': False,
-                'error': '资源不存在',
-                'message': '请求的API端点不存在'
-            }), 404
-        else:
-            return f"<h1>页面未找到</h1><p>请求的页面不存在</p>", 404
-    
-    @app.errorhandler(405)
-    def handle_method_not_allowed(e):
-        if is_api_request():
-            return jsonify({
-                'success': False,
-                'error': '请求方法不允许',
-                'message': '请求方法不被允许，请检查HTTP方法'
-            }), 405
-        else:
-            return f"<h1>请求方法不允许</h1><p>请求方法不被允许</p>", 405
-    
-    @app.errorhandler(400)
-    def handle_bad_request(e):
-        if is_api_request():
-            return jsonify({
-                'success': False,
-                'error': '请求格式错误',
-                'message': '请求数据格式不正确，请检查请求参数'
-            }), 400
-        else:
-            return f"<h1>请求格式错误</h1><p>请求数据格式不正确</p>", 400
-    
-    # 覆盖默认错误处理，修正中文提示乱码
+    # 覆盖默认错误处理，修正中文提示乱码（保留单套处理器，避免重复定义）
     @app.errorhandler(500)
     def _handle_internal_error_clean(e):
         logging.error(f"Internal Server Error: {str(e)}")

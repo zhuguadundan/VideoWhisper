@@ -30,7 +30,8 @@ class VideoDownloader:
     
     def __init__(self):
         self.config = Config.load_config()
-        self.temp_dir = self.config['system']['temp_dir']
+        # 使用项目根锚定路径，确保不同工作目录一致
+        self.temp_dir = Config.resolve_path(self.config['system']['temp_dir'])
         self.file_manager = FileManager()
         os.makedirs(self.temp_dir, exist_ok=True)
     

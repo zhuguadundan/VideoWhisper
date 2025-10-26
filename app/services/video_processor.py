@@ -5,6 +5,7 @@ import uuid
 import glob
 import re
 import time
+import threading
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from app.models.data_models import ProcessingTask, VideoInfo, TranscriptionResult, TranscriptionSegment, UploadTask
@@ -38,6 +39,7 @@ class VideoProcessor:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.config = Config.load_config()
+        self._lock = threading.RLock()
         # 处理相对路径，转换为绝对路径
         output_dir = self.config['system']['output_dir']
         if not os.path.isabs(output_dir):
@@ -75,19 +77,22 @@ class VideoProcessor:
 
     def request_cancel(self, task_id: str):
         """请求取消指定任务"""
-        self._cancel_flags[task_id] = True
+        with self._lock:
+            self._cancel_flags[task_id] = True
 
     def cancel_all_processing(self) -> List[str]:
         """标记所有 processing 状态任务为取消，返回受影响的任务ID列表"""
         affected: List[str] = []
-        for tid, t in self.tasks.items():
-            if getattr(t, 'status', None) == 'processing':
-                self._cancel_flags[tid] = True
-                affected.append(tid)
+        with self._lock:
+            for tid, t in self.tasks.items():
+                if getattr(t, 'status', None) == 'processing':
+                    self._cancel_flags[tid] = True
+                    affected.append(tid)
         return affected
 
     def _is_cancelled(self, task_id: str) -> bool:
-        return self._cancel_flags.get(task_id, False)
+        with self._lock:
+            return self._cancel_flags.get(task_id, False)
     
     def _sanitize_filename(self, filename: str) -> str:
         """清理文件名中的非法字符，适配Windows系统"""
@@ -118,9 +123,9 @@ class VideoProcessor:
         # 如果提供了 cookies，存储到任务中
         if youtube_cookies:
             task.youtube_cookies = youtube_cookies
-            
-        self.tasks[task_id] = task
-        self.save_tasks_to_disk()
+        with self._lock:
+            self.tasks[task_id] = task
+            self.save_tasks_to_disk()
         return task_id
     
     def create_upload_task(self, original_filename: str, file_size: int, 
@@ -133,45 +138,50 @@ class VideoProcessor:
             mime_type=mime_type
         )
         
-        self.tasks[upload_task.id] = upload_task
-        self.save_tasks_to_disk()
+        with self._lock:
+            self.tasks[upload_task.id] = upload_task
+            self.save_tasks_to_disk()
         return upload_task.id
     
     def update_upload_progress(self, task_id: str, progress: int, 
                             status: str = "uploading", error_message: str = ""):
         """更新上传进度"""
-        task = self.get_task(task_id)
-        if task and isinstance(task, UploadTask):
-            task.upload_progress = progress
-            task.upload_status = status
-            if error_message:
-                task.upload_error_message = error_message
-            self.save_tasks_to_disk()
+        with self._lock:
+            task = self.tasks.get(task_id)
+            if task and isinstance(task, UploadTask):
+                task.upload_progress = progress
+                task.upload_status = status
+                if error_message:
+                    task.upload_error_message = error_message
+                self.save_tasks_to_disk()
     
     def complete_upload_task(self, task_id: str, file_path: str, 
                            file_duration: float = 0):
         """完成上传任务，设置文件路径"""
-        task = self.get_task(task_id)
-        if task and isinstance(task, UploadTask):
-            task.upload_status = "completed"
-            task.upload_progress = 100
-            task.upload_time = datetime.now()
-            task.audio_file_path = file_path
-            task.file_duration = file_duration
-            self.save_tasks_to_disk()
+        with self._lock:
+            task = self.tasks.get(task_id)
+            if task and isinstance(task, UploadTask):
+                task.upload_status = "completed"
+                task.upload_progress = 100
+                task.upload_time = datetime.now()
+                task.audio_file_path = file_path
+                task.file_duration = file_duration
+                self.save_tasks_to_disk()
     
     def fail_upload_task(self, task_id: str, error_message: str):
         """标记上传任务为失败"""
-        task = self.get_task(task_id)
-        if task and isinstance(task, UploadTask):
-            task.upload_status = "failed"
-            task.upload_progress = 0
-            task.upload_error_message = error_message
-            self.save_tasks_to_disk()
+        with self._lock:
+            task = self.tasks.get(task_id)
+            if task and isinstance(task, UploadTask):
+                task.upload_status = "failed"
+                task.upload_progress = 0
+                task.upload_error_message = error_message
+                self.save_tasks_to_disk()
     
     def get_task(self, task_id: str) -> Optional[ProcessingTask]:
         """获取任务"""
-        return self.tasks.get(task_id)
+        with self._lock:
+            return self.tasks.get(task_id)
     
     def process_video(self, task_id: str, llm_provider: str = None, api_config: dict = None) -> ProcessingTask:
         """处理视频的完整流程"""
@@ -1174,45 +1184,44 @@ class VideoProcessor:
             if os.path.exists(self.tasks_file):
                 with open(self.tasks_file, 'r', encoding='utf-8') as f:
                     tasks_data = json.load(f)
-                
-                # 过滤掉未完成的任务（只加载已完成或失败的任务）
-                completed_tasks = []
-                for task_data in tasks_data:
-                    # 将未完成的任务标记为失败
-                    if task_data['status'] == 'processing':
-                        task_data['status'] = 'failed'
-                        task_data['error_message'] = '程序重启导致任务中断'
-                        task_data['progress'] = 0
-                    
-                    task = ProcessingTask(
-                        id=task_data['id'],
-                        video_url=task_data['video_url'],
-                        status=task_data['status'],
-                        created_at=datetime.fromisoformat(task_data['created_at']),
-                        transcript=task_data.get('transcript', ''),
-                        summary=task_data.get('summary', {}),
-                        analysis=task_data.get('analysis', {}),
-                        error_message=task_data.get('error_message', ''),
-                        progress=task_data.get('progress', 0)
-                    )
-                    
-                    # 恢复视频信息
-                    if task_data.get('video_info'):
-                        vi = task_data['video_info']
-                        task.video_info = VideoInfo(
-                            title=vi.get('title', ''),
-                            url=vi.get('url', task_data['video_url']),
-                            duration=vi.get('duration', 0),
-                            uploader=vi.get('uploader', '')
+                with self._lock:
+                    # 过滤掉未完成的任务（只加载已完成或失败的任务）
+                    completed_tasks = []
+                    for task_data in tasks_data:
+                        # 将未完成的任务标记为失败
+                        if task_data.get('status') == 'processing':
+                            task_data['status'] = 'failed'
+                            task_data['error_message'] = '程序重启导致任务中断'
+                            task_data['progress'] = 0
+                        
+                        task = ProcessingTask(
+                            id=task_data['id'],
+                            video_url=task_data.get('video_url', ''),
+                            status=task_data.get('status', 'failed'),
+                            created_at=datetime.fromisoformat(task_data['created_at']),
+                            transcript=task_data.get('transcript', ''),
+                            summary=task_data.get('summary', {}),
+                            analysis=task_data.get('analysis', {}),
+                            error_message=task_data.get('error_message', ''),
+                            progress=task_data.get('progress', 0)
                         )
-                    
-                    self.tasks[task.id] = task
-                    completed_tasks.append(task_data)
+                        
+                        # 恢复视频信息
+                        if task_data.get('video_info'):
+                            vi = task_data['video_info'] or {}
+                            task.video_info = VideoInfo(
+                                title=vi.get('title', ''),
+                                url=vi.get('url', task_data.get('video_url', '')),
+                                duration=vi.get('duration', 0),
+                                uploader=vi.get('uploader', '')
+                            )
+                        
+                        self.tasks[task.id] = task
+                        completed_tasks.append(task_data)
                 
-                # 重新保存清理后的任务数据
+                # 发现清理则原子覆盖写回
                 if len(completed_tasks) != len(tasks_data):
-                    with open(self.tasks_file, 'w', encoding='utf-8') as f:
-                        json.dump(completed_tasks, f, ensure_ascii=False, indent=2)
+                    self._atomic_write_tasks(completed_tasks)
                     print(f"已清理未完成任务，加载 {len(self.tasks)} 个历史任务")
                 else:
                     print(f"已加载 {len(self.tasks)} 个历史任务")
@@ -1222,11 +1231,22 @@ class VideoProcessor:
     def save_tasks_to_disk(self):
         """保存任务数据到磁盘"""
         try:
-            tasks_data = [task.to_dict() for task in self.tasks.values()]
-            with open(self.tasks_file, 'w', encoding='utf-8') as f:
-                json.dump(tasks_data, f, ensure_ascii=False, indent=2)
+            with self._lock:
+                tasks_data = [task.to_dict() for task in self.tasks.values()]
+            self._atomic_write_tasks(tasks_data)
         except Exception as e:
             print(f"保存任务数据失败: {e}")
+
+    def _atomic_write_tasks(self, tasks_data: List[Dict[str, Any]]):
+        """原子方式写入 tasks.json，避免并发/中断导致文件损坏"""
+        directory = os.path.dirname(self.tasks_file) or '.'
+        os.makedirs(directory, exist_ok=True)
+        tmp_path = self.tasks_file + '.tmp'
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(tasks_data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, self.tasks_file)
     
     def _smart_cleanup_temp_files(self, current_task_id: str, current_audio_path: str):
         """智能清理临时文件，保留最近3次任务的文件"""
