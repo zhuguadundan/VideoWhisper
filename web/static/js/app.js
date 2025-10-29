@@ -133,10 +133,27 @@ document.addEventListener('DOMContentLoaded', function() {
         themeToggle.addEventListener('click', toggleTheme);
     }
 
+    // 仅绑定事件监听，避免阻塞首屏渲染
     initializeEventListeners();
-    initializeFileUpload();
-    loadAvailableProviders();
-    loadHistoryTasks();
+
+    // 非关键任务延后到空闲时执行，优先让页面完成首屏绘制
+    const defer = (cb) => {
+        if (typeof window.requestIdleCallback === 'function') {
+            requestIdleCallback(cb, { timeout: 1500 });
+        } else {
+            setTimeout(cb, 0);
+        }
+    };
+
+    defer(() => {
+        initializeFileUpload();
+        loadAvailableProviders();
+    });
+
+    // 任务列表加载放到稍后，避免阻塞首次交互
+    setTimeout(() => {
+        loadHistoryTasks();
+    }, 200);
 });
 
 // 加载可用的AI提供商

@@ -7,7 +7,8 @@ import os
 def run_http_server(app, host, port):
     """启动HTTP服务器"""
     print(f"启动HTTP服务器: http://{host}:{port}")
-    app.run(host=host, port=port, debug=False)
+    # 启用多线程，避免长任务阻塞静态资源与API的快速响应
+    app.run(host=host, port=port, debug=False, threaded=True)
 
 def run_https_server(app, https_config, ssl_context):
     """启动HTTPS服务器"""
@@ -61,10 +62,10 @@ if __name__ == '__main__':
         
         # 在主线程中启动HTTP服务器（生产环境不使用debug模式）
         print("启动HTTP服务器（生产模式）")
-        app.run(host=http_host, port=http_port, debug=False)
+        app.run(host=http_host, port=http_port, debug=False, threaded=True)
     else:
         # 仅HTTP模式
         print(f"启动HTTP服务器: http://{http_host}:{http_port}")
         # 检查是否为开发环境
         is_development = os.environ.get('FLASK_ENV') == 'development'
-        app.run(host=http_host, port=http_port, debug=is_development)
+        app.run(host=http_host, port=http_port, debug=is_development, threaded=True)

@@ -73,7 +73,8 @@
 
 /* 容器样式 */
 .container-fluid {
-    background-color: var(--bg-secondary);
+    /* 透明以透出 body 的网格背景 */
+    background-color: transparent;
     transition: background-color 0.3s ease;
 }
 
@@ -122,10 +123,38 @@ body {
 
 /* 现代极简背景 - 移除复杂渐变 */
 
+/* 背景网格（可复用）：将该类添加到任意容器或 body 即可启用 */
+/* 默认浅色方案，使用 CSS 变量便于定制尺寸与颜色 */
+.grid-background {
+    /* 网格参数（可按需覆盖） */
+    --grid-bg-color: #f7f7f7;       /* 背景底色 */
+    --grid-line-color: #e8e8e8;     /* 网格线颜色 */
+    --grid-size: 20px;              /* 每个格子的宽高 */
+
+    /* 背景实现 */
+    background-color: var(--grid-bg-color);
+    background-size: var(--grid-size) var(--grid-size);
+    background-image:
+        linear-gradient(to right, var(--grid-line-color) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-line-color) 1px, transparent 1px);
+}
+
+/* 固定背景（可选）：滚动时网格不随内容滚动 */
+.grid-background-fixed {
+    background-attachment: fixed;
+}
+
+/* 暗色模式下的网格自适应：与现有 data-theme="dark" 兼容 */
+[data-theme="dark"] .grid-background {
+    --grid-bg-color: var(--bg-primary); /* 使用暗色背景变量以保持一致性 */
+    --grid-line-color: rgba(255, 255, 255, 0.08);
+}
+
 /* 现代极简 Hero Section */
 .hero-section {
     padding: var(--space-20) 0 var(--space-16);
-    background-color: var(--bg-primary);
+    /* 透明以透出 body 的网格背景 */
+    background: transparent;
     border-bottom: 1px solid var(--border-light);
 }
 
