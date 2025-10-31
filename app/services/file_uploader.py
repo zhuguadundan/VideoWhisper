@@ -28,8 +28,9 @@ class FileUploader:
                                                                    ['mp3', 'wav', 'aac', 'm4a', 'ogg'])
         self.upload_chunk_size = self.config.get('upload', {}).get('upload_chunk_size', 5) * 1024 * 1024  # MB to bytes
         
-        # 临时存储目录
-        self.temp_upload_dir = os.path.join(self.config['system']['temp_dir'], 'uploads')
+        # 临时存储目录（锚定项目根）
+        base_tmp = Config.resolve_path(self.config['system']['temp_dir'])
+        self.temp_upload_dir = os.path.join(base_tmp, 'uploads')
         os.makedirs(self.temp_upload_dir, exist_ok=True)
         
         # 支持的MIME类型
@@ -122,7 +123,7 @@ class FileUploader:
         if mime_type:
             if (mime_type not in self.supported_video_mimes and 
                 mime_type not in self.supported_audio_mimes):
-                print(f"[WARNING] MIME类型不匹配: {mime_type}")
+                logger.warning(f"MIME类型不匹配: {mime_type}")
         
         # 基本安全检查 - 防止路径遍历攻击
         if '..' in filename or '/' in filename or '\\' in filename:
@@ -137,18 +138,18 @@ class FileUploader:
         
         # 生成唯一标识符
         unique_id = str(uuid.uuid4())[:8]
-        
+
         # 分割文件名和扩展名
         name_part, ext_part = os.path.splitext(safe_filename)
-        
-        # 构建新文件名
-        new_filename = f"{name_part}_{unique_id}{ext_part}"
-        
+
+        # 构建新文件名（扩展名只拼接一次）
+        base_name = f"{name_part}_{unique_id}"
+        new_filename = f"{base_name}{ext_part}"
+
         # 确保文件名唯一
         counter = 1
-        base_filename = new_filename
         while os.path.exists(os.path.join(self.temp_upload_dir, new_filename)):
-            new_filename = f"{base_filename}_{counter}{ext_part}"
+            new_filename = f"{base_name}_{counter}{ext_part}"
             counter += 1
         
         return new_filename
@@ -208,17 +209,8 @@ class FileUploader:
             unique_filename = self._generate_unique_filename(original_filename)
             file_path = os.path.join(self.temp_upload_dir, unique_filename)
             
-            # 创建上传任务
-            upload_task = self.create_upload_task(
-                original_filename=original_filename,
-                file_size=file_size,
-                file_type=file_info['file_type'],
-                mime_type=mime_type
-            )
-            
-            # 保存文件
-            upload_task.upload_status = "uploading"
-            upload_task.upload_progress = 0
+            # 保存文件（任务统一由 VideoProcessor 管理，此处不创建 UploadTask）
+            _upload_progress = 0
             
             saved_size = 0
             chunk_count = 0
@@ -236,11 +228,13 @@ class FileUploader:
                     
                     # 更新上传进度
                     progress = int((saved_size / file_size) * 100)
-                    upload_task.upload_progress = progress
+                    _upload_progress = progress
                     
                     # 每10个chunk更新一次进度（避免过于频繁）
                     if chunk_count % 10 == 0 or progress == 100:
-                        logger.info(f"[{upload_task.id}] 上传进度: {progress}% ({saved_size}/{file_size} bytes)")
+                        logger.info(
+                            f"上传进度: {progress}% ({saved_size}/{file_size} bytes) — {unique_filename}"
+                        )
             
             # 验证文件完整性
             if saved_size != file_size:
@@ -248,21 +242,17 @@ class FileUploader:
                 raise ValueError(f"文件上传不完整（预期 {file_size} bytes，实际 {saved_size} bytes）")
             
             # 上传完成
-            upload_task.upload_status = "completed"
-            upload_task.upload_progress = 100
-            upload_task.upload_time = datetime.now()
-            upload_task.audio_file_path = file_path
+            _upload_progress = 100
             
             # 计算文件哈希
             file_hash = self._calculate_file_hash(file_path)
             
-            logger.info(f"[{upload_task.id}] 文件上传完成: {unique_filename}")
-            logger.debug(f"[{upload_task.id}] 文件路径: {file_path}")
-            logger.debug(f"[{upload_task.id}] 文件哈希: {file_hash}")
+            logger.info(f"文件上传完成: {unique_filename}")
+            logger.debug(f"文件路径: {file_path}")
+            logger.debug(f"文件哈希: {file_hash}")
             
             return {
                 'success': True,
-                'task': upload_task,
                 'file_path': file_path,
                 'file_hash': file_hash,
                 'message': '文件上传成功'
@@ -331,52 +321,52 @@ class FileUploader:
             # 首先检查ffprobe是否可用
             import shutil
             if not shutil.which('ffprobe'):
-                print(f"[WARNING] ffprobe未安装，无法获取媒体时长")
+                logger.warning("ffprobe未安装，无法获取媒体时长")
                 return 0.0
             
-            print(f"[DEBUG] 正在获取媒体时长: {file_path}")
+            logger.debug(f"正在获取媒体时长: {file_path}")
             
             result = subprocess.run(cmd, capture_output=True, text=True, check=False)
             
             if result.returncode != 0:
-                print(f"[WARNING] ffprobe执行失败，返回码: {result.returncode}")
-                print(f"[WARNING] 错误输出: {result.stderr}")
+                logger.warning(f"ffprobe执行失败，返回码: {result.returncode}")
+                logger.warning(f"错误输出: {result.stderr}")
                 return 0.0
             
             if not result.stdout.strip():
-                print(f"[WARNING] ffprobe返回空输出")
+                logger.warning("ffprobe返回空输出")
                 return 0.0
             
             try:
                 media_info = json.loads(result.stdout)
-                print(f"[DEBUG] ffprobe成功解析媒体信息")
+                logger.debug("ffprobe成功解析媒体信息")
             except json.JSONDecodeError as e:
-                print(f"[WARNING] 解析ffprobe输出失败: {e}")
-                print(f"[DEBUG] ffprobe输出: {result.stdout[:200]}...")
+                logger.warning(f"解析ffprobe输出失败: {e}")
+                logger.debug(f"ffprobe输出: {result.stdout[:200]}...")
                 return 0.0
             
             # 获取时长
             if 'format' in media_info and 'duration' in media_info['format']:
                 duration = float(media_info['format']['duration'])
-                print(f"[DEBUG] 从format获取时长: {duration}")
+                logger.debug(f"从format获取时长: {duration}")
                 return duration
             elif 'streams' in media_info:
                 # 从视频或音频流中获取时长
                 for stream in media_info['streams']:
                     if 'duration' in stream:
                         duration = float(stream['duration'])
-                        print(f"[DEBUG] 从stream获取时长: {duration}")
+                        logger.debug(f"从stream获取时长: {duration}")
                         return duration
             
-            print(f"[WARNING] 无法从媒体信息中获取时长")
-            print(f"[DEBUG] 媒体信息: {str(media_info)[:200]}...")
+            logger.warning("无法从媒体信息中获取时长")
+            logger.debug(f"媒体信息: {str(media_info)[:200]}...")
             return 0.0
             
         except ImportError as e:
-            print(f"[WARNING] 导入依赖失败: {e}")
+            logger.warning(f"导入依赖失败: {e}")
             return 0.0
         except Exception as e:
-            print(f"[WARNING] 获取媒体时长时发生异常: {e}")
+            logger.warning(f"获取媒体时长时发生异常: {e}")
             return 0.0
     
     def cleanup_upload_file(self, file_path: str) -> bool:
@@ -384,11 +374,11 @@ class FileUploader:
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
-                print(f"清理上传文件: {file_path}")
+                logger.info(f"清理上传文件: {file_path}")
                 return True
             return False
         except Exception as e:
-            print(f"清理上传文件失败 {file_path}: {e}")
+            logger.warning(f"清理上传文件失败 {file_path}: {e}")
             return False
     
     def get_upload_config(self) -> Dict[str, Any]:

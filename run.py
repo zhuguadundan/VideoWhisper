@@ -3,17 +3,18 @@ from app.config.settings import Config
 import threading
 import time
 import os
+import logging
 
 def run_http_server(app, host, port):
     """启动HTTP服务器"""
-    print(f"启动HTTP服务器: http://{host}:{port}")
+    logging.info(f"启动HTTP服务器: http://{host}:{port}")
     # 启用多线程，避免长任务阻塞静态资源与API的快速响应
     app.run(host=host, port=port, debug=False, threaded=True)
 
 def run_https_server(app, https_config, ssl_context):
     """启动HTTPS服务器"""
     try:
-        print(f"启动HTTPS服务器: https://{https_config['host']}:{https_config['port']}")
+        logging.info(f"启动HTTPS服务器: https://{https_config['host']}:{https_config['port']}")
         app.run(
             host=https_config['host'],
             port=https_config['port'],
@@ -22,8 +23,6 @@ def run_https_server(app, https_config, ssl_context):
             threaded=True  # 启用多线程支持
         )
     except Exception as e:
-        print(f"HTTPS服务器启动失败: {e}")
-        import logging
         logging.error(f"HTTPS服务器启动失败: {e}")
 
 if __name__ == '__main__':
@@ -43,10 +42,10 @@ if __name__ == '__main__':
     
     if https_enabled:
         # 双模式：同时启动HTTP和HTTPS服务器
-        print("启动双协议服务模式")
-        print(f"HTTP:  http://{http_host}:{http_port}")
-        print(f"HTTPS: https://{https_config['host']}:{https_config['port']}")
-        print("注意：HTTPS使用自签名证书，浏览器会显示安全警告")
+        logging.info("启动双协议服务模式")
+        logging.info(f"HTTP:  http://{http_host}:{http_port}")
+        logging.info(f"HTTPS: https://{https_config['host']}:{https_config['port']}")
+        logging.warning("注意：HTTPS使用自签名证书，浏览器会显示安全警告")
         
         # 在单独的线程中启动HTTPS服务器
         https_thread = threading.Thread(
@@ -61,11 +60,11 @@ if __name__ == '__main__':
         time.sleep(3)  # 增加等待时间确保HTTPS服务器完全启动
         
         # 在主线程中启动HTTP服务器（生产环境不使用debug模式）
-        print("启动HTTP服务器（生产模式）")
+        logging.info("启动HTTP服务器（生产模式）")
         app.run(host=http_host, port=http_port, debug=False, threaded=True)
     else:
         # 仅HTTP模式
-        print(f"启动HTTP服务器: http://{http_host}:{http_port}")
+        logging.info(f"启动HTTP服务器: http://{http_host}:{http_port}")
         # 检查是否为开发环境
         is_development = os.environ.get('FLASK_ENV') == 'development'
         app.run(host=http_host, port=http_port, debug=is_development, threaded=True)

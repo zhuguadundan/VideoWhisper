@@ -66,7 +66,16 @@ class SpeechToText:
                     )
                     
                     response.raise_for_status()
-                    result = response.json()
+                    try:
+                        result = response.json()
+                    except ValueError:
+                        # broader 兼容：某些 requests 版本抛 ValueError
+                        if retry < max_retries - 1:
+                            logger.warning(f"API返回格式错误，第 {retry+1} 次重试...")
+                            time.sleep(2)
+                            continue
+                        else:
+                            raise Exception("API返回格式错误")
                     
                     # 根据硅基流动API实际返回格式解析
                     text = result.get('text', '')
@@ -109,9 +118,10 @@ class SpeechToText:
                 else:
                     raise Exception(f"语音转文字请求失败: {e}")
             except json.JSONDecodeError as e:
+                # 兼容旧路径，实际已在上方 try/except ValueError 处理；保留以免行为变化
                 if retry < max_retries - 1:
                     logger.warning(f"API返回格式错误，第 {retry+1} 次重试...")
-                    time.sleep(2)  # 重试前等待
+                    time.sleep(2)
                 else:
                     raise Exception("API返回格式错误")
         

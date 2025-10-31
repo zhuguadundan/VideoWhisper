@@ -237,21 +237,21 @@ class CertificateManager:
         """确保证书存在，如果配置了自动生成则创建新证书"""
         if not self.certificates_exist():
             if self.auto_generate:
-                print("证书不存在，自动生成自签名证书...")
+                logging.info("证书不存在，自动生成自签名证书...")
                 success, message = self.generate_self_signed_cert()
                 if success:
-                    print(f"{message}")
-                    print(f"证书文件: {self.cert_file}")
-                    print(f"私钥文件: {self.key_file}")
+                    logging.info(f"{message}")
+                    logging.info(f"证书文件: {self.cert_file}")
+                    logging.info(f"私钥文件: {self.key_file}")
                     return True
                 else:
-                    print(f"{message}")
+                    logging.error(f"{message}")
                     return False
             else:
-                print("证书不存在且未配置自动生成")
+                logging.warning("证书不存在且未配置自动生成")
                 return False
         else:
-            print("证书文件已存在")
+            logging.info("证书文件已存在")
             return True
 
 
@@ -263,7 +263,7 @@ def create_ssl_context(cert_file, key_file):
         context.load_cert_chain(cert_file, key_file)
         return context
     except Exception as e:
-        print(f"创建SSL上下文失败: {str(e)}")
+        logging.error(f"创建SSL上下文失败: {str(e)}")
         return None
 
 

@@ -109,6 +109,21 @@ class AudioExtractor:
             
         except ffmpeg.Error as e:
             raise Exception(f"音频格式转换失败: {e}")
+
+    def _probe_duration_seconds(self, probe: dict) -> float:
+        """稳健获取媒体时长（秒）"""
+        try:
+            # 优先使用整体格式时长
+            fmt = probe.get('format') or {}
+            if 'duration' in fmt and fmt['duration'] not in (None, ''):
+                return float(fmt['duration'])
+            # 兜底：在音频流里找时长
+            for s in probe.get('streams', []):
+                if s.get('codec_type') == 'audio' and s.get('duration') not in (None, ''):
+                    return float(s['duration'])
+        except Exception:
+            pass
+        return 0.0
     
     def split_audio_by_duration(self, input_path: str, segment_duration: int = 300) -> list:
         """按时长分割音频文件"""
@@ -122,7 +137,7 @@ class AudioExtractor:
         try:
             logger.debug("开始探测音频信息...")
             probe = ffmpeg.probe(input_path)
-            duration = float(probe['streams'][0]['duration'])
+            duration = self._probe_duration_seconds(probe)
             logger.debug(f"音频时长: {duration}秒")
         except Exception as probe_error:
             logger.error(f"探测音频信息失败: {probe_error}")
@@ -191,19 +206,19 @@ class AudioExtractor:
         """获取音频文件信息"""
         try:
             probe = ffmpeg.probe(audio_path)
-            audio_stream = next((stream for stream in probe['streams'] 
-                               if stream['codec_type'] == 'audio'), None)
+            audio_stream = next((stream for stream in probe.get('streams', []) 
+                               if stream.get('codec_type') == 'audio'), None)
             
             if not audio_stream:
                 raise Exception("无法找到音频流")
             
             return {
-                'duration': float(probe['format']['duration']),
-                'sample_rate': int(audio_stream['sample_rate']),
-                'channels': audio_stream['channels'],
-                'codec': audio_stream['codec_name'],
-                'bitrate': int(probe['format'].get('bit_rate', 0)),
-                'size': int(probe['format']['size'])
+                'duration': self._probe_duration_seconds(probe),
+                'sample_rate': int(audio_stream.get('sample_rate', 0) or 0),
+                'channels': audio_stream.get('channels', 0),
+                'codec': audio_stream.get('codec_name', ''),
+                'bitrate': int((probe.get('format') or {}).get('bit_rate', 0) or 0),
+                'size': int((probe.get('format') or {}).get('size', 0) or 0)
             }
             
         except Exception as e:

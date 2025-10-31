@@ -14,6 +14,10 @@ import re
 import json
 import time
 import random
+import logging
+
+# 模块级日志器
+_logger = logging.getLogger(__name__)
 
 class TextProcessor:
     def __init__(self, openai_config=None, gemini_config=None, siliconflow_config=None):
@@ -129,9 +133,9 @@ class TextProcessor:
                         pt = getattr(usage, 'prompt_tokens', None)
                         ct = getattr(usage, 'completion_tokens', None)
                         tt = getattr(usage, 'total_tokens', None)
-                        print(f"模型: {model} finish_reason={finish_reason}, tokens: prompt={pt}, completion={ct}, total={tt}")
+                        _logger.info(f"模型: {model} finish_reason={finish_reason}, tokens: prompt={pt}, completion={ct}, total={tt}")
                     else:
-                        print(f"模型: {model} finish_reason={finish_reason}")
+                        _logger.info(f"模型: {model} finish_reason={finish_reason}")
                 except Exception:
                     pass
                 return resp
@@ -152,7 +156,7 @@ class TextProcessor:
                     else:
                         base = 1.5
                         wait_s = min(base * (2 ** attempt) + random.uniform(0, 0.5), 12.0)
-                    print(f"{provider_label} 调用受限/繁忙 (status={status})，{wait_s:.2f}s 后重试 [{attempt+1}/{max_retries}]")
+                    _logger.warning(f"{provider_label} 调用受限/繁忙 (status={status})，{wait_s:.2f}s 后重试 [{attempt+1}/{max_retries}]")
                     time.sleep(wait_s)
                     continue
                 # 非限流错误直接抛出
@@ -327,9 +331,9 @@ class TextProcessor:
                 chunks = [segment[i:i+max_chars] for i in range(0, len(segment), max_chars)]
                 final_segments.extend(chunks)
         
-        print(f"智能分段：原始文本 {len(text)} 字符，分割为 {len(final_segments)} 个段落")
+        _logger.info(f"智能分段：原始文本 {len(text)} 字符，分割为 {len(final_segments)} 个段落")
         for i, segment in enumerate(final_segments):
-            print(f"段落 {i+1}: {len(segment)} 字符")
+            _logger.info(f"段落 {i+1}: {len(segment)} 字符")
         
         return final_segments
     
@@ -340,7 +344,7 @@ class TextProcessor:
         results = []
         
         for i, segment in enumerate(segments):
-            print(f"处理长文本第 {i+1}/{len(segments)} 段 ({len(segment)} 字符)")
+            _logger.info(f"处理长文本第 {i+1}/{len(segments)} 段 ({len(segment)} 字符)")
             
             try:
                 if provider.lower() == 'siliconflow':
@@ -367,16 +371,16 @@ class TextProcessor:
                 results.append(result)
                 # 轻量节流，避免瞬时触发RPM限流
                 time.sleep(random.uniform(0.3, 0.8))
-                print(f"第 {i+1} 段处理成功，结果长度: {len(result)} 字符")
+                _logger.info(f"第 {i+1} 段处理成功，结果长度: {len(result)} 字符")
                 
             except Exception as e:
-                print(f"第 {i+1} 段处理失败: {e}")
+                _logger.error(f"第 {i+1} 段处理失败: {e}")
                 # 如果某段处理失败，使用原始文本
                 results.append(f"[段落处理失败，使用原始文本]\n\n{segment}")
         
         # 合并所有结果
         final_result = "\n\n".join(results)
-        print(f"长文本处理完成：共 {len(segments)} 段，总结果长度: {len(final_result)} 字符")
+        _logger.info(f"长文本处理完成：共 {len(segments)} 段，总结果长度: {len(final_result)} 字符")
         return final_result
     
     def process_with_siliconflow(self, text: str, prompt_template: str,
@@ -471,10 +475,10 @@ class TextProcessor:
         estimated_tokens = self.estimate_tokens(raw_text)
         
         if estimated_tokens > self.MAX_TOKENS_PER_REQUEST - 1000:  # 留1000 tokens缓冲
-            print(f"文本过长（估算 {estimated_tokens} tokens），使用智能分段处理")
+            _logger.info(f"文本过长（估算 {estimated_tokens} tokens），使用智能分段处理")
             return self.process_long_text(raw_text, prompt, provider)
         else:
-            print(f"文本长度适中（估算 {estimated_tokens} tokens），直接处理")
+            _logger.info(f"文本长度适中（估算 {estimated_tokens} tokens），直接处理")
             # 短文本直接处理
             if provider.lower() == 'siliconflow':
                 return self.process_with_siliconflow(raw_text, prompt)
@@ -646,6 +650,6 @@ if __name__ == "__main__":
     # 测试代码
     try:
         processor = TextProcessor()
-        print("文本处理器初始化成功")
+        _logger.info("文本处理器初始化成功")
     except Exception as e:
-        print(f"初始化失败: {e}")
+        _logger.error(f"初始化失败: {e}")

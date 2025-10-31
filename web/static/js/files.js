@@ -13,48 +13,77 @@ class FilesManager {
 
     bindEvents() {
         // 刷新按钮
-        document.getElementById('refresh-btn').addEventListener('click', () => {
-            this.loadFiles();
-        });
+        const refreshBtn = document.getElementById('refresh-btn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => {
+                this.loadFiles();
+            });
+        }
 
         // 搜索功能
-        document.getElementById('search-input').addEventListener('input', (e) => {
-            this.filterFiles(e.target.value);
-        });
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+            searchInput.addEventListener('input', (e) => {
+                this.filterFiles(e.target.value);
+            });
+        }
 
         // 全选功能
-        document.getElementById('select-all-checkbox').addEventListener('change', (e) => {
-            this.toggleSelectAll(e.target.checked);
-        });
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+        if (selectAllCheckbox) {
+            selectAllCheckbox.addEventListener('change', (e) => {
+                this.toggleSelectAll(e.target.checked);
+            });
+        }
 
-        document.getElementById('select-all-btn').addEventListener('click', () => {
-            document.getElementById('select-all-checkbox').checked = true;
-            this.toggleSelectAll(true);
-        });
+        const selectAllBtn = document.getElementById('select-all-btn');
+        if (selectAllBtn) {
+            selectAllBtn.addEventListener('click', () => {
+                const cb = document.getElementById('select-all-checkbox');
+                if (cb) cb.checked = true;
+                this.toggleSelectAll(true);
+            });
+        }
 
-        document.getElementById('clear-selection-btn').addEventListener('click', () => {
-            document.getElementById('select-all-checkbox').checked = false;
-            this.toggleSelectAll(false);
-        });
+        const clearSelectionBtn = document.getElementById('clear-selection-btn');
+        if (clearSelectionBtn) {
+            clearSelectionBtn.addEventListener('click', () => {
+                const cb = document.getElementById('select-all-checkbox');
+                if (cb) cb.checked = false;
+                this.toggleSelectAll(false);
+            });
+        }
 
         // 下载和删除按钮
-        document.getElementById('download-selected-btn').addEventListener('click', () => {
-            this.downloadSelected();
-        });
+        const downloadSelectedBtn = document.getElementById('download-selected-btn');
+        if (downloadSelectedBtn) {
+            downloadSelectedBtn.addEventListener('click', () => {
+                this.downloadSelected();
+            });
+        }
 
-        document.getElementById('delete-selected-btn').addEventListener('click', () => {
-            this.showDeleteModal();
-        });
+        const deleteSelectedBtn = document.getElementById('delete-selected-btn');
+        if (deleteSelectedBtn) {
+            deleteSelectedBtn.addEventListener('click', () => {
+                this.showDeleteModal();
+            });
+        }
 
         // 删除确认
-        document.getElementById('confirm-delete-btn').addEventListener('click', () => {
-            this.deleteSelected();
-        });
+        const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
+        if (confirmDeleteBtn) {
+            confirmDeleteBtn.addEventListener('click', () => {
+                this.deleteSelected();
+            });
+        }
 
         // 任务删除确认
-        document.getElementById('confirm-task-delete-btn').addEventListener('click', () => {
-            this.deleteTask();
-        });
+        const confirmTaskDeleteBtn = document.getElementById('confirm-task-delete-btn');
+        if (confirmTaskDeleteBtn) {
+            confirmTaskDeleteBtn.addEventListener('click', () => {
+                this.deleteTask();
+            });
+        }
     }
 
     async loadFiles() {

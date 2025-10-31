@@ -7,7 +7,7 @@ import re
 import time
 import threading
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from app.models.data_models import ProcessingTask, VideoInfo, TranscriptionResult, TranscriptionSegment, UploadTask
 from app.services.video_downloader import VideoDownloader
 from app.services.audio_extractor import AudioExtractor
@@ -16,23 +16,6 @@ from app.services.text_processor import TextProcessor
 from app.services.file_uploader import FileUploader
 from app.config.settings import Config
 from app.utils.helpers import sanitize_filename as utils_sanitize_filename
-
-# 将模块内的 print 重定向到日志，便于统一管理
-_logger = logging.getLogger(__name__)
-def _log_print(*args, **kwargs):
-    try:
-        msg = ' '.join(str(a) for a in args)
-    except Exception:
-        msg = ' '.join(repr(a) for a in args)
-    level = kwargs.pop('level', None)
-    if level == 'error':
-        _logger.error(msg)
-    elif level == 'warning':
-        _logger.warning(msg)
-    else:
-        _logger.info(msg)
-
-print = _log_print
 
 class VideoProcessor:
     """视频处理核心类"""
@@ -77,7 +60,7 @@ class VideoProcessor:
         self.retry_sleep_long = float(proc_cfg.get('retry_sleep_long_seconds', 2.0))
         
         # 存储处理任务
-        self.tasks: Dict[str, ProcessingTask] = {}
+        self.tasks: Dict[str, Union[ProcessingTask, UploadTask]] = {}
         self.tasks_file = os.path.join(self.output_dir, 'tasks.json')
         # 任务取消标记存储
         self._cancel_flags: Dict[str, bool] = {}
@@ -123,18 +106,22 @@ class VideoProcessor:
     
     def create_upload_task(self, original_filename: str, file_size: int, 
                          file_type: str, mime_type: str) -> str:
-        """创建文件上传任务"""
-        upload_task = self.file_uploader.create_upload_task(
+        """创建文件上传任务（统一由 VideoProcessor 管理）"""
+        task_id = str(uuid.uuid4())
+        upload_task = UploadTask(
+            id=task_id,
+            video_url="",
+            file_type=file_type,
             original_filename=original_filename,
             file_size=file_size,
-            file_type=file_type,
-            mime_type=mime_type
+            upload_status="pending",
+            need_audio_extraction=(file_type == "video")
         )
-        
+
         with self._lock:
-            self.tasks[upload_task.id] = upload_task
+            self.tasks[task_id] = upload_task
             self.save_tasks_to_disk()
-        return upload_task.id
+        return task_id
     
     def update_upload_progress(self, task_id: str, progress: int, 
                             status: str = "uploading", error_message: str = ""):
@@ -200,7 +187,7 @@ class VideoProcessor:
         self.save_tasks_to_disk()
 
     def _step_get_video_info(self, task_id: str, task: ProcessingTask) -> Dict[str, Any]:
-        print(f"[{task_id}] 获取视频信息...")
+        self.logger.info(f"[{task_id}] 获取视频信息...")
         video_info_dict = self.video_downloader.get_video_info(task.video_url, task.youtube_cookies)
         task.video_info = VideoInfo(
             title=video_info_dict['title'],
@@ -214,51 +201,51 @@ class VideoProcessor:
         return video_info_dict
 
     def _step_download_audio(self, task_id: str, task: ProcessingTask) -> str:
-        print(f"[{task_id}] 下载音频...")
+        self.logger.info(f"[{task_id}] 下载音频...")
         self._update_progress(task, stage="下载音频", detail="正在下载音频文件...")
         try:
-            print(f"[DEBUG] 开始调用download_audio_only")
+            self.logger.debug("[DEBUG] 开始调用download_audio_only")
             audio_path = self.video_downloader.download_audio_only(task.video_url, task.id, cookies_str=task.youtube_cookies)
-            print(f"[DEBUG] download_audio_only完成，返回路径: {audio_path}")
+            self.logger.debug(f"[DEBUG] download_audio_only完成，返回路径: {audio_path}")
             task.audio_file_path = audio_path
             task.progress = 30
             return audio_path
         except Exception as download_error:
-            print(f"[ERROR] 音频下载阶段失败: {download_error}")
-            print(f"[ERROR] 错误类型: {type(download_error)}")
+            self.logger.error(f"[ERROR] 音频下载阶段失败: {download_error}")
+            self.logger.error(f"[ERROR] 错误类型: {type(download_error)}")
             raise Exception(f"音频下载失败: {download_error}")
 
     def _step_process_audio_and_transcribe(self, task_id: str, task: ProcessingTask, audio_path: str):
         """处理音频（获取信息、必要时分段、逐段转写或短音频直接转写），返回(full_text, all_segments, language, audio_info)"""
         if self._fail_if_cancelled(task_id, task):
             return None, None, None, None
-        print(f"[{task_id}] 处理音频...")
+        self.logger.info(f"[{task_id}] 处理音频...")
         self._update_progress(task, stage="处理音频", detail="分析音频文件...")
         try:
-            print(f"[DEBUG] 开始获取音频信息: {audio_path}")
+            self.logger.debug(f"[DEBUG] 开始获取音频信息: {audio_path}")
             audio_info = self.audio_extractor.get_audio_info(audio_path)
-            print(f"[DEBUG] 音频信息: {audio_info}")
+            self.logger.debug(f"[DEBUG] 音频信息: {audio_info}")
         except Exception as audio_info_error:
-            print(f"[ERROR] 获取音频信息失败: {audio_info_error}")
-            print(f"[ERROR] 错误类型: {type(audio_info_error)}")
+            self.logger.error(f"[ERROR] 获取音频信息失败: {audio_info_error}")
+            self.logger.error(f"[ERROR] 错误类型: {type(audio_info_error)}")
             raise Exception(f"获取音频信息失败: {audio_info_error}")
 
         # 长音频分段处理
         if audio_info['duration'] > self.long_audio_threshold:
             try:
-                print(f"[DEBUG] 音频超过阈值({self.long_audio_threshold}s)，开始分段处理")
+                self.logger.debug(f"[DEBUG] 音频超过阈值({self.long_audio_threshold}s)，开始分段处理")
                 segments = self.audio_extractor.split_audio_by_duration(audio_path, self.segment_duration)
-                print(f"[DEBUG] 音频分段完成，共 {len(segments)} 个片段（每段 {self.segment_duration}s）")
+                self.logger.debug(f"[DEBUG] 音频分段完成，共 {len(segments)} 个片段（每段 {self.segment_duration}s）")
                 task.progress = 40
                 task.total_segments = len(segments)
                 task.progress_detail = f"音频已分割为 {len(segments)} 个片段"
                 self.save_tasks_to_disk()
             except Exception as split_error:
-                print(f"[ERROR] 音频分段失败: {split_error}")
-                print(f"[ERROR] 错误类型: {type(split_error)}")
+                self.logger.error(f"[ERROR] 音频分段失败: {split_error}")
+                self.logger.error(f"[ERROR] 错误类型: {type(split_error)}")
                 raise Exception(f"音频分段失败: {split_error}")
 
-            print(f"[{task_id}] 语音转文字...")
+            self.logger.info(f"[{task_id}] 语音转文字...")
             task.progress_stage = "语音转文字"
             transcription_results = []
             consecutive_failures = 0
@@ -284,12 +271,12 @@ class VideoProcessor:
                         'end_time': segment['end_time'],
                         'language': segment_result.get('language', 'unknown')
                     })
-                    print(f"[{task_id}] 片段 {i+1} 处理成功: 文本长度={len(text)}")
+                    self.logger.info(f"[{task_id}] 片段 {i+1} 处理成功: 文本长度={len(text)}")
                     consecutive_failures = 0
                     time.sleep(self.retry_sleep_short)
                 except Exception as e:
                     consecutive_failures += 1
-                    print(f"[{task_id}] 片段 {i+1} 处理失败: {e} (连续失败次数: {consecutive_failures})")
+                    self.logger.warning(f"[{task_id}] 片段 {i+1} 处理失败: {e} (连续失败次数: {consecutive_failures})")
                     transcription_results.append({
                         'segment_index': segment['index'],
                         'text': '',
@@ -299,14 +286,19 @@ class VideoProcessor:
                         'error': str(e)
                     })
                     if consecutive_failures >= max_consecutive_failures:
-                        print(f"[{task_id}] 连续失败次数达到上限 ({max_consecutive_failures})，停止处理")
+                        self.logger.warning(f"[{task_id}] 连续失败次数达到上限 ({max_consecutive_failures})，停止处理")
                         remaining_segments = len(segments) - (i + 1)
                         if remaining_segments > 0:
-                            print(f"[{task_id}] 跳过剩余 {remaining_segments} 个片段")
+                            self.logger.info(f"[{task_id}] 跳过剩余 {remaining_segments} 个片段")
                         break
                     time.sleep(self.retry_sleep_long)
 
             task.progress = 60
+            # 注册所有分段文件，便于统一清理
+            try:
+                self.file_uploader.file_manager.register_task(task_id, [s['path'] for s in segments])
+            except Exception as reg_err:
+                self.logger.warning(f"[{task_id}] 分段文件注册失败: {reg_err}")
             transcription_results.sort(key=lambda x: x.get('segment_index', 0))
             all_segments: List[TranscriptionSegment] = []
             full_text = ""
@@ -320,7 +312,7 @@ class VideoProcessor:
                         successful_segments += 1
                         full_text += text + " "
                     else:
-                        print(f"[{task_id}] 警告: 片段 {result.get('segment_index', '未知')} 返回无效文本")
+                        self.logger.warning(f"[{task_id}] 警告: 片段 {result.get('segment_index', '未知')} 返回无效文本")
                     for seg in result.get('segments', []):
                         all_segments.append(TranscriptionSegment(
                             text=seg.get('text', ''),
@@ -328,12 +320,12 @@ class VideoProcessor:
                         ))
                 else:
                     failed_segments += 1
-                    print(f"[{task_id}] 片段 {result.get('segment_index', '未知')} 处理失败: {result.get('error', '未知错误')}")
+                    self.logger.warning(f"[{task_id}] 片段 {result.get('segment_index', '未知')} 处理失败: {result.get('error', '未知错误')}")
 
-            print(f"[{task_id}] 处理统计: 成功 {successful_segments}/{processed_segments_count} 个片段, 失败 {failed_segments} 个片段")
+            self.logger.info(f"[{task_id}] 处理统计: 成功 {successful_segments}/{processed_segments_count} 个片段, 失败 {failed_segments} 个片段")
             if processed_segments_count < len(segments):
                 remaining_segments = len(segments) - processed_segments_count
-                print(f"[{task_id}] 跳过未处理片段: {remaining_segments} 个 (因连续失败而提前终止)")
+                self.logger.info(f"[{task_id}] 跳过未处理片段: {remaining_segments} 个 (因连续失败而提前终止)")
             if successful_segments == 0:
                 raise Exception(f"所有音频片段处理失败，共处理 {processed_segments_count} 个片段")
 
@@ -360,16 +352,16 @@ class VideoProcessor:
                     text = transcription_result.get('text', '').strip()
                     if not text or len(text) < 3:
                         if retry < max_retries - 1:
-                            print(f"[{task_id}] 短音频返回无效文本（长度={len(text)}），第 {retry+1} 次重试...")
+                            self.logger.warning(f"[{task_id}] 短音频返回无效文本（长度={len(text)}），第 {retry+1} 次重试...")
                             time.sleep(self.retry_sleep_long)
                             continue
                         else:
                             raise Exception(f"短音频处理重试{max_retries}次后仍返回无效文本")
-                    print(f"[{task_id}] 短音频处理成功: 文本长度={len(text)}")
+                    self.logger.info(f"[{task_id}] 短音频处理成功: 文本长度={len(text)}")
                     break
                 except Exception as e:
                     if retry < max_retries - 1:
-                        print(f"[{task_id}] 短音频处理失败: {e}，第 {retry+1} 次重试...")
+                        self.logger.warning(f"[{task_id}] 短音频处理失败: {e}，第 {retry+1} 次重试...")
                         time.sleep(self.retry_sleep_long)
                     else:
                         raise Exception(f"短音频处理重试{max_retries}次后仍然失败: {e}")
@@ -388,7 +380,7 @@ class VideoProcessor:
             task.error_message = "用户手动停止任务"
             self.save_tasks_to_disk()
             return
-        print(f"[{task.id}] 生成逐字稿...")
+        self.logger.info(f"[{task.id}] 生成逐字稿...")
         self._update_progress(task, stage="生成逐字稿", detail="使用AI优化文本格式...")
         task.ai_start_time = time.time()
         start_time = time.time()
@@ -406,7 +398,7 @@ class VideoProcessor:
             task.error_message = "用户手动停止任务"
             self.save_tasks_to_disk()
             return
-        print(f"[{task.id}] 生成总结报告...")
+        self.logger.info(f"[{task.id}] 生成总结报告...")
         self._update_progress(task, stage="生成总结报告", detail=f"AI正在分析内容并生成摘要... (使用 {llm_provider})")
         start_time = time.time()
         task.summary = self.text_processor.generate_summary(task.transcript, provider=llm_provider)
@@ -422,7 +414,7 @@ class VideoProcessor:
             task.error_message = "用户手动停止任务"
             self.save_tasks_to_disk()
             return
-        print(f"[{task.id}] 内容分析...")
+        self.logger.info(f"[{task.id}] 内容分析...")
         self._update_progress(task, stage="内容分析", detail=f"提取关键信息和主题... (使用 {llm_provider})")
         start_time = time.time()
         task.analysis = self.text_processor.analyze_content(task.transcript, provider=llm_provider)
@@ -441,7 +433,7 @@ class VideoProcessor:
         try:
             # 如果传入了api_config，临时设置配置
             if api_config:
-                print(f"[{task_id}] 使用前端传递的API配置")
+                self.logger.info(f"[{task_id}] 使用前端传递的API配置")
                 # 临时更新speech_to_text和text_processor的配置
                 if hasattr(self.speech_to_text, 'set_runtime_config'):
                     self.speech_to_text.set_runtime_config(api_config.get('siliconflow', {}))
@@ -459,9 +451,9 @@ class VideoProcessor:
             # 如果指定的provider不可用，使用默认provider
             if not llm_provider or not self.text_processor.is_provider_available(llm_provider):
                 llm_provider = self.text_processor.get_default_provider()
-                print(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
+                self.logger.info(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
             else:
-                print(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
+                self.logger.info(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
             
             task.status = "processing"
             task.progress = 0
@@ -485,7 +477,7 @@ class VideoProcessor:
             full_text, all_segments, language, audio_info = self._step_process_audio_and_transcribe(task_id, task, audio_path)
             if full_text is None:
                 return task
-            print(f"[{task_id}] 合并转录结果: 文本长度={len(full_text)}, 片段数={len(all_segments)}")
+            self.logger.info(f"[{task_id}] 合并转录结果: 文本长度={len(full_text)}, 片段数={len(all_segments)}")
             task.transcription = TranscriptionResult(
                 segments=all_segments,
                 full_text=full_text.strip(),
@@ -513,12 +505,12 @@ class VideoProcessor:
             # 清理临时文件 - 智能保留最近3次任务的文件
             self._smart_cleanup_temp_files(task_id, audio_path)
             
-            print(f"[{task_id}] 处理完成!")
+            self.logger.info(f"[{task_id}] 处理完成!")
             
         except Exception as e:
             task.status = "failed"
             task.error_message = str(e)
-            print(f"[{task_id}] 处理失败: {e}")
+            self.logger.error(f"[{task_id}] 处理失败: {e}")
         
         # 保存任务状态到磁盘
         self.save_tasks_to_disk()
@@ -526,25 +518,25 @@ class VideoProcessor:
     
     def process_upload(self, task_id: str, llm_provider: str = None, api_config: dict = None) -> ProcessingTask:
         """处理上传的文件的完整流程"""
-        print(f"[{task_id}] 开始process_upload处理")
+        self.logger.info(f"[{task_id}] 开始process_upload处理")
         # 开始处理上传的文件
         
         task = self.get_task(task_id)
         if not task:
             raise ValueError(f"任务不存在: {task_id}")
         
-        print(f"[{task_id}] 获取到任务对象: {type(task).__name__}")
+        self.logger.debug(f"[{task_id}] 获取到任务对象: {type(task).__name__}")
         
         if not isinstance(task, UploadTask):
             raise ValueError(f"不是上传任务: {task_id}")
         
-        print(f"[{task_id}] 任务状态: status={task.status}, upload_status={task.upload_status}")
-        print(f"[{task_id}] 文件信息: audio_file_path={task.audio_file_path}, file_type={task.file_type}, need_audio_extraction={task.need_audio_extraction}")
+        self.logger.info(f"[{task_id}] 任务状态: status={task.status}, upload_status={task.upload_status}")
+        self.logger.info(f"[{task_id}] 文件信息: audio_file_path={task.audio_file_path}, file_type={task.file_type}, need_audio_extraction={task.need_audio_extraction}")
         
         try:
             # 如果传入了api_config，临时设置配置
             if api_config:
-                print(f"[{task_id}] 使用前端传递的API配置")
+                self.logger.info(f"[{task_id}] 使用前端传递的API配置")
                 # 临时更新speech_to_text和text_processor的配置
                 if hasattr(self.speech_to_text, 'set_runtime_config'):
                     self.speech_to_text.set_runtime_config(api_config.get('siliconflow', {}))
@@ -562,9 +554,9 @@ class VideoProcessor:
             # 如果指定的provider不可用，使用默认provider
             if not llm_provider or not self.text_processor.is_provider_available(llm_provider):
                 llm_provider = self.text_processor.get_default_provider()
-                print(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
+                self.logger.info(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
             else:
-                print(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
+                self.logger.info(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
             
             task.status = "processing"
             task.progress = 0
@@ -578,7 +570,7 @@ class VideoProcessor:
                 task.error_message = "用户手动停止任务"
                 self.save_tasks_to_disk()
                 return task
-            print(f"[{task_id}] 获取文件信息...")
+            self.logger.info(f"[{task_id}] 获取文件信息...")
             file_info = self.file_uploader.get_file_info_from_path(task.audio_file_path)
             
             # 创建视频信息对象
@@ -599,7 +591,7 @@ class VideoProcessor:
                     task.error_message = "用户手动停止任务"
                     self.save_tasks_to_disk()
                     return task
-                print(f"[{task_id}] 提取视频音频...")
+                self.logger.info(f"[{task_id}] 提取视频音频...")
                 task.progress_stage = "音频提取"
                 task.progress_detail = "正在从视频中提取音频..."
                 self.save_tasks_to_disk()
@@ -609,17 +601,22 @@ class VideoProcessor:
                     # 删除原始视频文件以节省空间
                     try:
                         os.remove(task.audio_file_path)
-                        print(f"[{task_id}] 已删除原始视频文件")
+                        self.logger.info(f"[{task_id}] 已删除原始视频文件")
                     except Exception as delete_error:
-                        print(f"[{task_id}] 删除原始视频文件失败: {delete_error}")
+                        self.logger.warning(f"[{task_id}] 删除原始视频文件失败: {delete_error}")
                     
                     task.audio_file_path = audio_path
+                    # 注册提取后的音频文件到任务
+                    try:
+                        self.file_uploader.file_manager.register_task(task_id, [audio_path], register_dir=True)
+                    except Exception as reg_err:
+                        self.logger.warning(f"[{task_id}] 注册音频文件失败: {reg_err}")
                     task.progress = 25
                 except Exception as extract_error:
                     raise Exception(f"音频提取失败: {extract_error}")
             else:
                 # 音频文件，直接使用
-                print(f"[{task_id}] 使用音频文件...")
+                self.logger.info(f"[{task_id}] 使用音频文件...")
                 task.progress = 25
                 task.progress_detail = "音频文件准备就绪"
             
@@ -631,12 +628,12 @@ class VideoProcessor:
                     task.error_message = "用户手动停止任务"
                     self.save_tasks_to_disk()
                     return task
-                print(f"[{task_id}] 开始获取音频信息: {task.audio_file_path}")
+                self.logger.debug(f"[{task_id}] 开始获取音频信息: {task.audio_file_path}")
                 audio_info = self.audio_extractor.get_audio_info(task.audio_file_path)
-                print(f"[{task_id}] 音频信息: {audio_info}")
+                self.logger.debug(f"[{task_id}] 音频信息: {audio_info}")
             except Exception as audio_info_error:
-                print(f"[ERROR] 获取音频信息失败: {audio_info_error}")
-                print(f"[ERROR] 错误类型: {type(audio_info_error)}")
+                self.logger.error(f"[ERROR] 获取音频信息失败: {audio_info_error}")
+                self.logger.error(f"[ERROR] 错误类型: {type(audio_info_error)}")
                 raise Exception(f"获取音频信息失败: {audio_info_error}")
             
             # 统一音频处理（分段或短音频）
@@ -646,7 +643,7 @@ class VideoProcessor:
             full_text, all_segments, language, audio_info = result
 
             # 创建转录结果对象（与 URL 流程一致）
-            print(f"[{task_id}] 合并转录结果: 文本长度={len(full_text)}, 片段数={len(all_segments)}")
+            self.logger.info(f"[{task_id}] 合并转录结果: 文本长度={len(full_text)}, 片段数={len(all_segments)}")
             task.transcription = TranscriptionResult(
                 segments=all_segments,
                 full_text=full_text.strip(),
@@ -672,13 +669,13 @@ class VideoProcessor:
 
             # 清理临时文件
             self._smart_cleanup_temp_files(task_id, task.audio_file_path)
-            print(f"[{task_id}] 处理完成!")
+            self.logger.info(f"[{task_id}] 处理完成!")
             return task
 
         except Exception as e:
             task.status = "failed"
             task.error_message = str(e)
-            print(f"[{task_id}] 处理失败: {e}")
+            self.logger.error(f"[{task_id}] 处理失败: {e}")
         
         # 保存任务状态到磁盘
         self.save_tasks_to_disk()
@@ -701,7 +698,8 @@ class VideoProcessor:
         try:
             with open(transcript_path, 'w', encoding='utf-8') as f:
                 f.write(f"# {task.video_info.title if task.video_info else '视频逐字稿'}\n\n")
-                f.write(f"**视频URL:** {task.video_url}\n\n")
+                url_line = task.video_info.url if task.video_info and getattr(task.video_info, 'url', '') else getattr(task, 'video_url', '')
+                f.write(f"**视频URL:** {url_line}\n\n")
                 if task.video_info:
                     if task.video_info.uploader:
                         f.write(f"**UP主:** {task.video_info.uploader}\n")
@@ -712,12 +710,13 @@ class VideoProcessor:
                 f.write("---\n\n")
                 f.write(task.transcript)
         except Exception as e:
-            print(f"保存逐字稿失败: {e}")
+            self.logger.warning(f"保存逐字稿失败: {e}")
             # 使用基础文件名重试
             transcript_path = os.path.join(task_dir, 'transcript.md')
             with open(transcript_path, 'w', encoding='utf-8') as f:
                 f.write(f"# 视频逐字稿\n\n")
-                f.write(f"**视频URL:** {task.video_url}\n\n")
+                url_line = task.video_info.url if task.video_info and getattr(task.video_info, 'url', '') else getattr(task, 'video_url', '')
+                f.write(f"**视频URL:** {url_line}\n\n")
                 f.write(f"**处理时间:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                 f.write("---\n\n")
                 f.write(task.transcript)
@@ -727,7 +726,8 @@ class VideoProcessor:
         try:
             with open(summary_path, 'w', encoding='utf-8') as f:
                 f.write(f"# {task.video_info.title if task.video_info else '视频总结报告'}\n\n")
-                f.write(f"**视频URL:** {task.video_url}\n")
+                url_line = task.video_info.url if task.video_info and getattr(task.video_info, 'url', '') else getattr(task, 'video_url', '')
+                f.write(f"**视频URL:** {url_line}\n")
                 if task.video_info:
                     f.write(f"**上传者:** {task.video_info.uploader}\n")
                     f.write(f"**时长:** {self._format_duration(task.video_info.duration)}\n")
@@ -744,12 +744,13 @@ class VideoProcessor:
                     f.write("## 关键词\n\n")
                     f.write(task.summary['keywords'] + "\n\n")
         except Exception as e:
-            print(f"保存总结报告失败: {e}")
+            self.logger.warning(f"保存总结报告失败: {e}")
             # 使用基础文件名重试
             summary_path = os.path.join(task_dir, 'summary.md')
             with open(summary_path, 'w', encoding='utf-8') as f:
                 f.write(f"# 视频总结报告\n\n")
-                f.write(f"**视频URL:** {task.video_url}\n")
+                url_line = task.video_info.url if task.video_info and getattr(task.video_info, 'url', '') else getattr(task, 'video_url', '')
+                f.write(f"**视频URL:** {url_line}\n")
                 f.write(f"**处理时间:** {task.created_at.strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                 if task.summary.get('brief_summary'):
                     f.write("## 简要摘要\n\n")
@@ -761,7 +762,7 @@ class VideoProcessor:
             with open(data_path, 'w', encoding='utf-8') as f:
                 json.dump(task.to_dict(), f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"保存JSON数据失败: {e}")
+            self.logger.warning(f"保存JSON数据失败: {e}")
             # 使用基础文件名重试
             data_path = os.path.join(task_dir, 'data.json')
             with open(data_path, 'w', encoding='utf-8') as f:
@@ -853,7 +854,7 @@ class VideoProcessor:
                 # 只写正文，不写任何标题，避免模型/文件头部混入额外说明
                 f.write(content.strip() + "\n")
         except Exception as e:
-            print(f"保存对照逐字稿失败: {e}")
+            self.logger.warning(f"保存对照逐字稿失败: {e}")
     
     def load_tasks_from_disk(self):
         """从磁盘加载任务数据"""
@@ -871,7 +872,11 @@ class VideoProcessor:
                             task_data['error_message'] = '程序重启导致任务中断'
                             task_data['progress'] = 0
                         
-                        task = ProcessingTask(
+                        # 判断任务类型（向后兼容：无type但带上传字段则视为上传任务）
+                        is_upload = (task_data.get('type') == 'upload') or (
+                            'upload_status' in task_data or 'original_filename' in task_data
+                        )
+                        common_kwargs = dict(
                             id=task_data['id'],
                             video_url=task_data.get('video_url', ''),
                             status=task_data.get('status', 'failed'),
@@ -882,6 +887,23 @@ class VideoProcessor:
                             error_message=task_data.get('error_message', ''),
                             progress=task_data.get('progress', 0)
                         )
+                        if is_upload:
+                            task = UploadTask(
+                                **common_kwargs,
+                                file_type=task_data.get('file_type', 'audio'),
+                                original_filename=task_data.get('original_filename', ''),
+                                file_size=task_data.get('file_size', 0),
+                                file_duration=task_data.get('file_duration', 0.0),
+                                upload_time=datetime.fromisoformat(task_data['upload_time']) if task_data.get('upload_time') else None,
+                                need_audio_extraction=task_data.get('need_audio_extraction', False),
+                                upload_progress=task_data.get('upload_progress', 0),
+                                upload_status=task_data.get('upload_status', ''),
+                                upload_error_message=task_data.get('upload_error_message', '')
+                            )
+                            task.audio_file_path = task_data.get('audio_file_path')
+                        else:
+                            task = ProcessingTask(**common_kwargs)
+                            task.audio_file_path = task_data.get('audio_file_path')
                         
                         # 恢复视频信息
                         if task_data.get('video_info'):
@@ -899,11 +921,11 @@ class VideoProcessor:
                 # 发现清理则原子覆盖写回
                 if len(completed_tasks) != len(tasks_data):
                     self._atomic_write_tasks(completed_tasks)
-                    print(f"已清理未完成任务，加载 {len(self.tasks)} 个历史任务")
+                    self.logger.info(f"已清理未完成任务，加载 {len(self.tasks)} 个历史任务")
                 else:
-                    print(f"已加载 {len(self.tasks)} 个历史任务")
+                    self.logger.info(f"已加载 {len(self.tasks)} 个历史任务")
         except Exception as e:
-            print(f"加载任务数据失败: {e}")
+            self.logger.error(f"加载任务数据失败: {e}")
     
     def save_tasks_to_disk(self):
         """保存任务数据到磁盘"""
@@ -912,7 +934,7 @@ class VideoProcessor:
                 tasks_data = [task.to_dict() for task in self.tasks.values()]
             self._atomic_write_tasks(tasks_data)
         except Exception as e:
-            print(f"保存任务数据失败: {e}")
+            self.logger.error(f"保存任务数据失败: {e}")
 
     def _atomic_write_tasks(self, tasks_data: List[Dict[str, Any]]):
         """原子方式写入 tasks.json，避免并发/中断导致文件损坏"""
@@ -926,86 +948,12 @@ class VideoProcessor:
         os.replace(tmp_path, self.tasks_file)
     
     def _smart_cleanup_temp_files(self, current_task_id: str, current_audio_path: str):
-        """智能清理临时文件，保留最近3次任务的文件"""
+        """智能清理临时文件：委托 FileManager 递归清理超出保留限制的任务目录"""
         try:
-            # 1. 获取所有已完成的任务，按创建时间排序
-            completed_tasks = [
-                task for task in self.tasks.values() 
-                if task.status == "completed"
-            ]
-            completed_tasks.sort(key=lambda x: x.created_at, reverse=True)
-            
-            # 2. 保留最近3次任务的ID（包括当前任务）
-            keep_task_ids = {current_task_id}  # 当前任务ID
-            for i, task in enumerate(completed_tasks[:3]):  # 最近3次完成的任务
-                keep_task_ids.add(task.id)
-            
-            print(f"[{current_task_id}] 临时文件清理：保留任务 {keep_task_ids}")
-            
-            # 3. 获取临时目录下所有文件
-            if not os.path.exists(self.temp_dir):
-                return
-                
-            temp_files = os.listdir(self.temp_dir)
-            files_to_delete = []
-            files_to_keep = []
-            
-            for file_name in temp_files:
-                file_path = os.path.join(self.temp_dir, file_name)
-                if not os.path.isfile(file_path):
-                    continue
-                    
-                # 4. 判断文件是否应该保留
-                should_keep = False
-                
-                # 检查文件是否属于要保留的任务
-                for task_id in keep_task_ids:
-                    if self._is_file_related_to_task(file_name, task_id):
-                        should_keep = True
-                        break
-                
-                # 检查是否是当前正在处理的文件
-                if file_path == current_audio_path:
-                    should_keep = True
-                
-                # 检查是否是最近修改的文件（1小时内）
-                try:
-                    file_stat = os.stat(file_path)
-                    file_age = datetime.now().timestamp() - file_stat.st_mtime
-                    if file_age < 3600:  # 1小时内的文件保留
-                        should_keep = True
-                except:
-                    pass
-                
-                if should_keep:
-                    files_to_keep.append(file_name)
-                else:
-                    files_to_delete.append(file_path)
-            
-            # 5. 删除不需要的文件
-            deleted_count = 0
-            deleted_size = 0
-            
-            for file_path in files_to_delete:
-                try:
-                    file_size = os.path.getsize(file_path)
-                    os.remove(file_path)
-                    deleted_count += 1
-                    deleted_size += file_size
-                    print(f"[{current_task_id}] 已删除临时文件: {os.path.basename(file_path)}")
-                except Exception as e:
-                    print(f"[{current_task_id}] 删除文件失败 {file_path}: {e}")
-            
-            # 6. 记录清理结果
-            if deleted_count > 0:
-                size_mb = deleted_size / (1024 * 1024)
-                print(f"[{current_task_id}] 临时文件清理完成：删除 {deleted_count} 个文件，释放 {size_mb:.2f}MB 空间")
-                print(f"[{current_task_id}] 保留文件数量: {len(files_to_keep)}")
-            else:
-                print(f"[{current_task_id}] 无需清理临时文件")
-                
+            self.file_uploader.file_manager.cleanup_excess_tasks()
+            self.logger.info(f"[{current_task_id}] 已触发历史任务清理（按最近{self.file_uploader.file_manager.max_temp_tasks}个保留）")
         except Exception as e:
-            print(f"[{current_task_id}] 临时文件清理失败: {e}")
+            self.logger.warning(f"[{current_task_id}] 临时文件清理失败: {e}")
     
     def _is_file_related_to_task(self, file_name: str, task_id: str) -> bool:
         """判断文件是否与特定任务相关"""
@@ -1045,7 +993,7 @@ class VideoProcessor:
             return False
             
         except Exception as e:
-            print(f"检查文件关联性失败 {file_name} <-> {task_id}: {e}")
+            self.logger.warning(f"检查文件关联性失败 {file_name} <-> {task_id}: {e}")
             return False
     
     def _format_timestamp(self, seconds: float) -> str:

@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import jsonify, request
+from flask import jsonify, request, g
 import logging
 import traceback
 
@@ -92,6 +92,13 @@ def safe_json_response(success=True, data=None, message='', error='', status=200
         if error:
             response_data['error'] = error
         
+        # 附加 request_id 元信息（如有）
+        try:
+            rid = getattr(g, 'request_id', None)
+            if rid:
+                response_data['meta'] = {'request_id': rid}
+        except Exception:
+            pass
         return jsonify(response_data), status
     except Exception as e:
         logging.exception(f"Error building JSON response: {str(e)}")

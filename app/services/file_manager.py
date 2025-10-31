@@ -1,6 +1,8 @@
 import os
 import json
 import shutil
+import uuid
+import re
 from datetime import datetime
 from typing import List, Dict, Any
 from app.config.settings import Config
@@ -93,17 +95,35 @@ class FileManager:
         except Exception as e:
             logger.error(f"保存任务历史失败: {e}")
     
-    def register_task(self, task_id: str, files: List[str]):
-        """注册新任务的文件"""
+    def register_task(self, task_id: str, files: List[str], register_dir: bool = False):
+        """注册新任务的文件
+        register_dir=True 时会同时记录任务目录，清理更稳健。
+        """
         history = self.get_task_history()
-        
-        # 添加新任务记录
-        new_task = {
-            'task_id': task_id,
-            'created_at': datetime.now().isoformat(),
-            'files': files
-        }
-        history.append(new_task)
+
+        # 若已存在相同 task_id，合并文件列表（去重）
+        merged = False
+        for entry in history:
+            if entry.get('task_id') == task_id:
+                existing = set(entry.get('files', []))
+                for f in files:
+                    if f not in existing:
+                        entry.setdefault('files', []).append(f)
+                if register_dir:
+                    entry['task_dir'] = os.path.join(self.temp_dir, task_id)
+                # 保留原 created_at（更符合“最近任务按创建时间排序”）
+                merged = True
+                break
+        if not merged:
+            # 新增任务记录
+            new_task = {
+                'task_id': task_id,
+                'created_at': datetime.now().isoformat(),
+                'files': files
+            }
+            if register_dir:
+                new_task['task_dir'] = os.path.join(self.temp_dir, task_id)
+            history.append(new_task)
         
         # 按创建时间排序
         history.sort(key=lambda x: x['created_at'], reverse=True)
@@ -133,9 +153,9 @@ class FileManager:
                 
                 # 清理任务目录（如果为空）
                 task_temp_dir = os.path.join(self.temp_dir, task['task_id'])
-                if os.path.exists(task_temp_dir) and not os.listdir(task_temp_dir):
-                    os.rmdir(task_temp_dir)
-                    
+                # 统一递归清理整个任务目录，避免残留未登记文件（安全护栏）
+                self._safe_remove_task_dir(task['task_id'], task_temp_dir, reason="cleanup_old_tasks")
+                
             except Exception as e:
                 logger.error(f"清理任务 {task['task_id']} 的文件时出错: {e}")
     
@@ -169,11 +189,30 @@ class FileManager:
                 logger.error(f"目录写权限验证: 失败 - {perm_error}")
                 
         except Exception as e:
-            print(f"[ERROR] 创建任务目录失败: {e}")
-            print(f"[ERROR] 错误类型: {type(e)}")
+            logger.error(f"创建任务目录失败: {e}")
+            logger.error(f"错误类型: {type(e)}")
             raise Exception(f"创建任务目录失败: {e}")
-            
+        
         return task_temp_dir
+
+    def cleanup_excess_tasks(self):
+        """清理超过保留数量的历史任务目录（递归）"""
+        history = self.get_task_history()
+        if not history:
+            return
+        # 排序后保留最近 max_temp_tasks
+        try:
+            history.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+            keep = history[: self.max_temp_tasks]
+            remove = history[self.max_temp_tasks :]
+            for task in remove:
+                task_id = task.get('task_id')
+                task_temp_dir = os.path.join(self.temp_dir, task_id)
+                self._safe_remove_task_dir(task_id, task_temp_dir, reason="cleanup_excess_tasks")
+            # 仅保存保留的
+            self.save_task_history(keep)
+        except Exception as e:
+            logger.error(f"清理历史任务失败: {e}")
     
     def cleanup_task_files(self, task_id: str):
         """立即清理指定任务的所有文件"""
@@ -188,23 +227,81 @@ class FileManager:
                     
                     # 删除任务目录
                     task_temp_dir = os.path.join(self.temp_dir, task_id)
-                    if os.path.exists(task_temp_dir):
-                        shutil.rmtree(task_temp_dir)
-                        
+                    self._safe_remove_task_dir(task_id, task_temp_dir, reason="cleanup_task_files")
+                    
                     # 从历史记录中移除
                     history.remove(task)
                     self.save_task_history(history)
-                    print(f"已清理任务 {task_id} 的所有文件")
+                    logger.info(f"已清理任务 {task_id} 的所有文件")
                     
                 except Exception as e:
-                    print(f"清理任务 {task_id} 文件时出错: {e}")
+                    logger.error(f"清理任务 {task_id} 文件时出错: {e}")
                 break
     
     def get_temp_file_path(self, task_id: str, filename: str) -> str:
         """获取任务临时文件的完整路径"""
         task_temp_dir = self.get_task_temp_dir(task_id)
         return os.path.join(task_temp_dir, filename)
+
+    # -------------------------
+    # 内部安全工具
+    # -------------------------
+    def _is_valid_task_id(self, task_id: str) -> bool:
+        """校验task_id是否为UUID格式"""
+        try:
+            uuid_obj = uuid.UUID(str(task_id))
+            return str(uuid_obj) == str(task_id).lower()
+        except Exception:
+            return False
+
+    def _is_safe_within_temp(self, path: str) -> bool:
+        """检查路径是否严格位于 temp_dir 下"""
+        try:
+            base = os.path.realpath(self.temp_dir)
+            target = os.path.realpath(path)
+            return os.path.commonpath([base]) == os.path.commonpath([base, target])
+        except Exception:
+            return False
+
+    def _safe_remove_task_dir(self, task_id: str, task_temp_dir: str, *, reason: str = ""):
+        """带护栏的目录删除：校验UUID与前缀路径，输出审计日志"""
+        try:
+            if not task_id or not self._is_valid_task_id(task_id):
+                logger.warning(f"拒绝删除目录（task_id非法）: task_id={task_id}, dir={task_temp_dir}, reason={reason}")
+                return
+            if not self._is_safe_within_temp(task_temp_dir):
+                logger.warning(f"拒绝删除目录（越界）: dir={task_temp_dir}, base={self.temp_dir}, reason={reason}")
+                return
+            if os.path.exists(task_temp_dir):
+                shutil.rmtree(task_temp_dir, ignore_errors=True)
+                logger.info(f"已删除任务目录: {task_temp_dir} (task_id={task_id}, reason={reason})")
+        except Exception as e:
+            logger.error(f"安全删除目录失败: {task_temp_dir}, 错误: {e}")
     
+    def delete_output_task_dir(self, task_id: str) -> bool:
+        """安全删除 output 目录下指定任务目录。
+        - 校验 task_id 为 UUID
+        - 校验路径在 output_dir 内
+        返回是否执行了删除。
+        """
+        try:
+            if not self._is_valid_task_id(task_id):
+                logger.warning(f"拒绝删除输出目录（task_id非法）: {task_id}")
+                return False
+            base_abs = os.path.realpath(self.output_dir)
+            task_dir = os.path.realpath(os.path.join(base_abs, task_id))
+            if os.path.commonpath([base_abs]) != os.path.commonpath([base_abs, task_dir]):
+                logger.warning(f"拒绝删除输出目录（越界）: {task_dir}")
+                return False
+            if os.path.exists(task_dir):
+                shutil.rmtree(task_dir, ignore_errors=True)
+                logger.info(f"已删除输出任务目录: {task_dir}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"删除输出任务目录失败: {task_id}, 错误: {e}")
+            return False
+
     def get_file_size_mb(self, file_path: str) -> float:
         """获取文件大小（MB）"""
         if os.path.exists(file_path):
@@ -247,4 +344,4 @@ if __name__ == "__main__":
     # 测试代码
     fm = FileManager()
     stats = fm.get_storage_stats()
-    print(f"存储统计: {stats}")
+    logger.info(f"存储统计: {stats}")

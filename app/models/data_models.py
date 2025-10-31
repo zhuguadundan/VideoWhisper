@@ -79,6 +79,7 @@ class ProcessingTask:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            'type': 'processing',
             'id': self.id,
             'video_url': self.video_url,
             'status': self.status,
@@ -86,6 +87,7 @@ class ProcessingTask:
             'audio_file_path': self.audio_file_path,
             'video_info': {
                 'title': self.video_info.title if self.video_info else '',
+                'url': self.video_info.url if self.video_info else '',
                 'duration': self.video_info.duration if self.video_info else 0,
                 'uploader': self.video_info.uploader if self.video_info else '',
                 'description': self.video_info.description if self.video_info else '',
@@ -118,6 +120,7 @@ class UploadTask(ProcessingTask):
 
     def to_dict(self) -> Dict[str, Any]:
         data = super().to_dict()
+        data['type'] = 'upload'
         data.update({
             'file_type': self.file_type,
             'original_filename': self.original_filename,

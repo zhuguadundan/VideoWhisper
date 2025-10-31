@@ -90,5 +90,13 @@ fi
 echo -e "${GREEN}Starting VideoWhisper Application...${NC}"
 echo -e "${BLUE}======================================${NC}"
 
-# 启动Flask应用
-exec python run.py
+# 使用 gunicorn 启动（生产）
+exec gunicorn \
+  -w 1 \
+  -k gthread \
+  --threads 4 \
+  -t 120 \
+  -b 0.0.0.0:5000 \
+  --access-logfile - \
+  --error-logfile - \
+  "app:create_app()"

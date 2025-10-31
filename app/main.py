@@ -11,6 +11,7 @@ from app.services.text_processor import TextProcessor
 from app.services.file_uploader import FileUploader
 from app.models.data_models import UploadTask
 from app.utils.error_handler import api_error_handler, safe_json_response
+from app.utils.auth import admin_protected
 from app.utils.provider_tester import (
     test_siliconflow as _pt_test_siliconflow,
     test_openai_compatible as _pt_test_openai,
@@ -20,6 +21,14 @@ import logging
 import ipaddress
 from urllib.parse import urlparse
 from app.config.settings import Config
+from app.utils.api_guard import (
+    is_safe_base_url as _is_safe_base_url,
+    validate_runtime_api_config as _validate_runtime_api_config,
+)
+from app.utils.api_guard import (
+    is_safe_base_url as __guard_is_safe_base_url,
+    validate_runtime_api_config as __guard_validate_runtime_api_config,
+)
 
 # 简单的 base_url 安全校验，防止 SSRF
 # 白名单来源与安全开关来自 config.yaml 与环境变量（环境变量优先）
@@ -97,6 +106,10 @@ def _validate_runtime_api_config(api_config: dict):
     except Exception:
         # 统一由路由装饰器处理异常响应
         raise
+
+# 委托至统一 API 守卫（覆盖本地定义，保持调用兼容）
+_is_safe_base_url = __guard_is_safe_base_url
+_validate_runtime_api_config = __guard_validate_runtime_api_config
 
 try:
     import openai
@@ -271,8 +284,7 @@ def upload_file():
                         'file_size': file_size,
                         'file_type': file_info['file_type'],
                         'mime_type': mime_type,
-                        'need_audio_extraction': file_info['need_audio_extraction'],
-                        'file_path': upload_result['file_path']
+                        'need_audio_extraction': file_info['need_audio_extraction']
                     }
                 },
                 message='文件上传成功'
@@ -829,6 +841,7 @@ def download_managed_file(file_id):
         return jsonify({'success': False, 'message': str(e)})
 
 @main_bp.route('/api/files/delete', methods=['POST'])
+@admin_protected
 def delete_files():
     """删除指定文件"""
     try:
@@ -907,6 +920,7 @@ def delete_files():
         })
 
 @main_bp.route('/api/files/delete-task/<task_id>', methods=['POST'])
+@admin_protected
 def delete_task_files(task_id):
     """删除整个任务的所有文件"""
     try:
@@ -942,6 +956,11 @@ def delete_task_files(task_id):
                 # 从内存中移除任务
                 if task_id in video_processor.tasks:
                     del video_processor.tasks[task_id]
+                    # 删除任务后立即持久化，确保状态一致
+                    try:
+                        video_processor.save_tasks_to_disk()
+                    except Exception:
+                        pass
                 
                 return jsonify({
                     'success': True,
@@ -1126,6 +1145,7 @@ def test_gemini_connection(config, is_text_processor=False):
 
 @main_bp.route('/api/stop-all-tasks', methods=['POST'])
 @api_error_handler
+@admin_protected
 def stop_all_tasks():
     """停止所有正在处理的任务"""
     try:

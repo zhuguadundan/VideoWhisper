@@ -1,10 +1,11 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, g
 from app.config.settings import Config
 from app.utils.certificate_manager import CertificateManager, create_ssl_context
 import logging
 from logging.handlers import RotatingFileHandler
 import traceback
 import os
+import uuid
 
 def create_app():
     app = Flask(__name__, 
@@ -21,11 +22,11 @@ def create_app():
     
     # 自动生成证书（如果启用且不存在）
     if https_config['enabled'] and https_config['auto_generate']:
-        print("HTTPS已启用，检查SSL证书...")
+        logging.info("HTTPS已启用，检查SSL证书...")
         if cert_manager.ensure_certificates():
-            print("SSL证书已准备就绪")
+            logging.info("SSL证书已准备就绪")
         else:
-            print("SSL证书生成失败，将仅使用HTTP")
+            logging.error("SSL证书生成失败，将仅使用HTTP")
     
     # 配置HTTPS上下文（如果证书存在）
     ssl_context = None
@@ -33,14 +34,14 @@ def create_app():
         try:
             ssl_context = create_ssl_context(https_config['cert_file'], https_config['key_file'])
             if ssl_context:
-                print(f"HTTPS已启用，监听 {https_config['host']}:{https_config['port']}")
+                logging.info(f"HTTPS已启用，监听 {https_config['host']}:{https_config['port']}")
                 # 将SSL上下文存储到app对象中，供run.py使用
                 app.ssl_context = ssl_context
                 app.https_config = https_config
             else:
-                print("SSL上下文创建失败，将仅使用HTTP")
+                logging.error("SSL上下文创建失败，将仅使用HTTP")
         except Exception as e:
-            print(f"SSL上下文创建失败: {e}")
+            logging.error(f"SSL上下文创建失败: {e}")
             https_config['enabled'] = False
     else:
         app.ssl_context = None
@@ -172,6 +173,24 @@ def create_app():
         else:
             return f"<h1>系统异常</h1><p>{error_message}</p>", 500
     
+    # request-id 注入与回传（P2-2）
+    @app.before_request
+    def _inject_request_id():
+        try:
+            g.request_id = request.headers.get('X-Request-Id') or uuid.uuid4().hex[:12]
+        except Exception:
+            g.request_id = uuid.uuid4().hex[:12]
+
+    @app.after_request
+    def _attach_request_id_header(resp):
+        try:
+            rid = getattr(g, 'request_id', None)
+            if rid:
+                resp.headers['X-Request-Id'] = rid
+        except Exception:
+            pass
+        return resp
+
     # 注册蓝图
     from app.main import main_bp
     app.register_blueprint(main_bp)

@@ -173,7 +173,7 @@ class VideoDownloader:
                     cookies_dict[name.strip()] = value.strip()
             return cookies_dict
         except Exception as e:
-            print(f"解析cookies失败: {e}")
+            logger.error(f"解析cookies失败: {e}")
             return {}
     
     def get_video_info(self, url: str, cookies_str: str = None) -> Dict[str, Any]:
@@ -271,7 +271,10 @@ class VideoDownloader:
                     pass
     
     def download_audio_only(self, url: str, task_id: str, output_path: Optional[str] = None, cookies_str: str = None) -> str:
-        """仅下载音频 - 带降级策略和文件名清理"""
+        """仅下载音频 - 带降级策略和文件名清理
+        注意：若调用方提供了 output_path，则尊重调用方路径（Never break userspace）。
+        返回实际生成的 .wav 文件的绝对路径。
+        """
         logger.debug(f"download_audio_only 开始: url={url}, task_id={task_id}")
         
         # 尝试多种下载策略
@@ -295,8 +298,12 @@ class VideoDownloader:
                 task_temp_dir = self.file_manager.get_task_temp_dir(task_id)
                 logger.debug(f"任务临时目录: {task_temp_dir}")
                 
-                # 使用安全的文件名模板
-                if not output_path:
+                # 使用调用方提供的输出模板；若未提供则基于 title 生成模板
+                if output_path:
+                    # 若是相对路径，锚定到任务目录
+                    if not os.path.isabs(output_path):
+                        output_path = os.path.join(task_temp_dir, output_path)
+                else:
                     output_path = os.path.join(task_temp_dir, '%(title)s.%(ext)s')
                 logger.debug(f"初始输出路径模板: {output_path}")
                     
@@ -316,70 +323,72 @@ class VideoDownloader:
                 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     logger.debug("开始获取视频信息...")
-                    # 首先获取视频信息
+                    # 先探测信息
                     info = ydl.extract_info(url, download=False)
-                    
-                    # 清理标题作为文件名
-                    original_title = info.get('title', 'audio_file')
-                    logger.debug(f"原始标题: {original_title}")
-                    safe_title = self._sanitize_filename(original_title)
-                    logger.debug(f"清理后标题: {safe_title}")
-                    
-                    # 使用清理后的文件名重新构建路径
-                    safe_output_path = os.path.join(task_temp_dir, f'{safe_title}.%(ext)s')
-                    logger.debug(f"安全输出路径模板: {safe_output_path}")
-                    ydl_opts['outtmpl'] = safe_output_path
-                    
-                    # 重新创建ydl对象并下载
-                    logger.debug("开始下载音频...")
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl_download:
-                        try:
-                            info_download = ydl_download.extract_info(url, download=True)
-                            logger.debug("yt-dlp下载完成")
-                        except Exception as download_error:
-                            logger.error(f"yt-dlp下载失败: {download_error}")
-                            logger.error(f"错误类型: {type(download_error)}")
-                            raise download_error
-                        
-                        # 构建最终的音频文件路径
-                        audio_filename = os.path.join(task_temp_dir, f'{safe_title}.wav')
-                        logger.debug(f"预期音频文件路径: {audio_filename}")
-                        
-                        # 验证文件是否存在
-                        if not os.path.exists(audio_filename):
-                            logger.debug("预期文件不存在，搜索实际生成的文件...")
-                            # 列出目录中的所有文件
-                            try:
-                                files_in_dir = os.listdir(task_temp_dir)
-                                logger.debug(f"目录中的文件: {files_in_dir}")
-                                
-                                # 尝试查找实际生成的文件
-                                for file in files_in_dir:
-                                    file_path = os.path.join(task_temp_dir, file)
-                                    logger.debug(f"检查文件: {file} -> {file_path}")
-                                    if file.endswith('.wav') and safe_title in file:
-                                        audio_filename = file_path
-                                        logger.debug(f"找到匹配文件: {audio_filename}")
-                                        break
-                            except Exception as list_error:
-                                logger.error(f"列出目录文件失败: {list_error}")
-                                raise Exception(f"无法列出目录文件: {list_error}")
-                        
-                        logger.debug(f"最终音频文件路径: {audio_filename}")
-                        if not os.path.exists(audio_filename):
-                            raise Exception(f"音频文件未找到: {audio_filename}")
-                    
-                    # 注册文件到管理器
+
+                # 基于标题生成安全文件名（用于默认 outtmpl 和最终名称推断）
+                original_title = info.get('title', 'audio_file')
+                logger.debug(f"原始标题: {original_title}")
+                safe_title = self._sanitize_filename(original_title)
+                logger.debug(f"清理后标题: {safe_title}")
+
+                # 若调用方未指定 outtmpl 文件名部分，确保文件名安全
+                outtmpl = ydl_opts.get('outtmpl', output_path)
+                if '%(title)s' in outtmpl:
+                    # 改为安全标题模板（避免 restrictfilenames 与自定义清洗产生不一致）
+                    outtmpl = outtmpl.replace('%(title)s', safe_title)
+                ydl_opts['outtmpl'] = outtmpl
+
+                logger.debug("开始下载音频...")
+                # 执行下载并获取实际结果
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl_download:
                     try:
-                        logger.debug(f"注册文件到管理器: {audio_filename}")
-                        self.file_manager.register_task(task_id, [audio_filename])
-                        logger.debug("文件注册成功")
-                    except Exception as register_error:
-                        logger.error(f"文件注册失败: {register_error}")
-                        # 注册失败不影响主流程，继续执行
-                    
-                    logger.info(f"音频下载成功 (策略{i+1}): {audio_filename}")
-                    return audio_filename
+                        info_download = ydl_download.extract_info(url, download=True)
+                        logger.debug("yt-dlp下载完成")
+                    except Exception as download_error:
+                        logger.error(f"yt-dlp下载失败: {download_error}")
+                        logger.error(f"错误类型: {type(download_error)}")
+                        raise download_error
+
+                # 推断最终生成的 wav 文件路径
+                # 1) yt-dlp 音频提取 postprocessor 通常把扩展名改为 .wav
+                # 2) 当 outtmpl 为 .../<name>.%(ext)s 时，最终为 .../<name>.wav
+                # 因此直接在模板位置替换 %(ext)s 为 wav
+                final_path = outtmpl
+                final_path = final_path.replace('%(ext)s', 'wav') if '%(ext)s' in final_path else final_path
+                # 若 outtmpl 没有 %(ext)s，但不是 .wav，尝试替换结尾扩展名
+                if not final_path.lower().endswith('.wav'):
+                    root, _ = os.path.splitext(final_path)
+                    final_path = f"{root}.wav"
+
+                # 如果文件不存在，做一次目录扫描兜底（只要 .wav 且包含 safe_title）
+                audio_filename = final_path
+                if not os.path.exists(audio_filename):
+                    logger.debug("按推断路径未找到文件，进行目录兜底扫描...")
+                    try:
+                        for file in os.listdir(task_temp_dir):
+                            if file.lower().endswith('.wav') and safe_title in file:
+                                audio_filename = os.path.join(task_temp_dir, file)
+                                break
+                    except Exception as list_error:
+                        logger.error(f"列出目录文件失败: {list_error}")
+                        raise Exception(f"无法列出目录文件: {list_error}")
+
+                logger.debug(f"最终音频文件路径: {audio_filename}")
+                if not os.path.exists(audio_filename):
+                    raise Exception(f"音频文件未找到: {audio_filename}")
+
+                # 成功路径：注册并返回
+                try:
+                    logger.debug(f"注册文件到管理器: {audio_filename}")
+                    self.file_manager.register_task(task_id, [audio_filename], register_dir=True)
+                    logger.debug("文件注册成功")
+                except Exception as register_error:
+                    logger.error(f"文件注册失败: {register_error}")
+                    # 注册失败不影响主流程
+
+                logger.info(f"音频下载成功 (策略{i+1}): {audio_filename}")
+                return audio_filename
                     
             except Exception as e:
                 error_msg = str(e)
@@ -424,14 +433,15 @@ class VideoDownloader:
                     pass
     
     def cleanup_temp_files(self):
-        """清理临时文件"""
+        """清理临时文件（兼容保留）
+        为避免误删，已改为委托 FileManager 的历史任务清理逻辑，
+        按“仅保留最近N次任务”的策略递归删除旧任务目录。
+        """
         try:
-            for file in os.listdir(self.temp_dir):
-                file_path = os.path.join(self.temp_dir, file)
-                if os.path.isfile(file_path):
-                    os.remove(file_path)
+            self.file_manager.cleanup_excess_tasks()
+            logger.info("已触发历史任务清理（按配置的保留数量）")
         except Exception as e:
-            print(f"清理临时文件失败: {e}")
+            logger.error(f"清理临时文件失败: {e}")
 
     def get_supported_platforms_info(self) -> Dict[str, Any]:
         """获取支持平台的配置信息"""

@@ -494,9 +494,11 @@ async function handleFileUpload() {
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<i class="fas fa-cog fa-spin me-2"></i>上传中...';
     
-    // 显示上传进度
-    document.getElementById('uploadContent').style.display = 'none';
-    document.getElementById('uploadProcessing').style.display = 'block';
+    // 显示上传进度（判空）
+    const _uploadContent = document.getElementById('uploadContent');
+    const _uploadProcessing = document.getElementById('uploadProcessing');
+    if (_uploadContent) _uploadContent.style.display = 'none';
+    if (_uploadProcessing) _uploadProcessing.style.display = 'block';
     
     try {
         // 使用 XMLHttpRequest 来支持上传进度
@@ -539,20 +541,14 @@ async function handleFileUpload() {
                     console.log('⏳ 将在1秒后开始处理上传的文件...');
                     setTimeout(() => {
                         console.log('🚀 setTimeout回调被触发 - 这是第二关键的步骤');
-                        console.log('📝 准备调用的任务ID:', uploadTaskId);
-                        console.log('📝 setTimeout中全局变量 currentTaskId:', currentTaskId);
-                        
                         if (!uploadTaskId) {
                             console.error('❌ uploadTaskId为空，无法调用handleUploadProcess');
                             showToast('error', '处理失败', '任务ID为空，请重新上传文件');
                             return;
                         }
-                        
-                        console.log('✅ 开始调用handleUploadProcess...');
-                        
-                        // 立即修复：使用window对象确保变量不被重置
-                        window.tempTaskId = uploadTaskId;
-                        handleUploadProcess(window.tempTaskId);
+                        const tid = uploadTaskId; // 使用局部快照
+                        console.log('✅ 开始调用handleUploadProcess...', tid);
+                        handleUploadProcess(tid);
                     }, 1000);
                 } else {
                     console.error('文件上传失败:', result.error);
@@ -831,19 +827,34 @@ function initializeEventListeners() {
     setupDragAndDrop();
     
     // 下载按钮
-    document.getElementById('downloadTranscript').addEventListener('click', () => downloadFile('transcript'));
+    const downloadTranscriptBtn = document.getElementById('downloadTranscript');
+    if (downloadTranscriptBtn) {
+        downloadTranscriptBtn.addEventListener('click', () => downloadFile('transcript'));
+    }
     const translateBtn = document.getElementById('translateBilingual');
     if (translateBtn) {
         translateBtn.addEventListener('click', translateBilingualHandler);
     }
-    document.getElementById('importObsidianRoot').addEventListener('click', () => importToObsidian(''));
-    document.getElementById('downloadSummary').addEventListener('click', () => downloadFile('summary'));
+    const importObsidianBtn = document.getElementById('importObsidianRoot');
+    if (importObsidianBtn) {
+        importObsidianBtn.addEventListener('click', () => importToObsidian(''));
+    }
+    const downloadSummaryBtn = document.getElementById('downloadSummary');
+    if (downloadSummaryBtn) {
+        downloadSummaryBtn.addEventListener('click', () => downloadFile('summary'));
+    }
     
     // 刷新任务列表
-    document.getElementById('refreshTasks').addEventListener('click', loadHistoryTasks);
+    const refreshTasksBtn = document.getElementById('refreshTasks');
+    if (refreshTasksBtn) {
+        refreshTasksBtn.addEventListener('click', loadHistoryTasks);
+    }
     
     // 停止所有任务
-    document.getElementById('stopAllTasksBtn').addEventListener('click', stopAllTasks);
+    const stopAllBtn = document.getElementById('stopAllTasksBtn');
+    if (stopAllBtn) {
+        stopAllBtn.addEventListener('click', stopAllTasks);
+    }
     
 }
 
@@ -1130,31 +1141,43 @@ function updateProgress(data) {
             // 显示详细阶段信息
             if (data.progress_stage) {
                 let stageIcon = getStageIcon(data.progress_stage);
-                progressStage.innerHTML = `${stageIcon}<strong>当前阶段:</strong> ${data.progress_stage}`;
+                progressStage.textContent = '';
+const __icoStage = document.createElement('span');
+__icoStage.innerHTML = getStageIcon(String(data.progress_stage));
+progressStage.appendChild(__icoStage);
+const __strongStage = document.createElement('strong');
+__strongStage.className = 'ms-1';
+__strongStage.textContent = '当前阶段:';
+progressStage.appendChild(__strongStage);
+progressStage.appendChild(document.createTextNode(' ' + String(data.progress_stage)));
             }
             
-            // 显示详细进度信息和AI响应速度
-            let detailHtml = '';
-            if (data.progress_detail) {
-                detailHtml = `<i class="fas fa-info-circle me-1"></i>${data.progress_detail}`;
-            }
-            
-            // 显示AI响应时间信息
-            if (data.ai_response_times && Object.keys(data.ai_response_times).length > 0) {
-                detailHtml += '<div class="ai-timing-info mt-2">';
-                if (data.ai_response_times.transcript) {
-                    detailHtml += `<small class="text-muted"><i class="fas fa-stopwatch me-1"></i>逐字稿生成: ${data.ai_response_times.transcript.toFixed(1)}s</small>`;
-                }
-                if (data.ai_response_times.summary) {
-                    detailHtml += ` <small class="text-muted"><i class="fas fa-stopwatch me-1"></i>摘要生成: ${data.ai_response_times.summary.toFixed(1)}s</small>`;
-                }
-                if (data.ai_response_times.analysis) {
-                    detailHtml += ` <small class="text-muted"><i class="fas fa-stopwatch me-1"></i>内容分析: ${data.ai_response_times.analysis.toFixed(1)}s</small>`;
-                }
-                detailHtml += '</div>';
-            }
-            
-            progressDetail.innerHTML = detailHtml;
+            // 安全渲染详细进度与AI响应信息
+progressDetail.textContent = '';
+if (data.progress_detail) {
+    const __icoInfo = document.createElement('i');
+    __icoInfo.className = 'fas fa-info-circle me-1';
+    progressDetail.appendChild(__icoInfo);
+    progressDetail.appendChild(document.createTextNode(String(data.progress_detail)));
+}
+if (data.ai_response_times && Object.keys(data.ai_response_times).length > 0) {
+    const __timing = document.createElement('div');
+    __timing.className = 'ai-timing-info mt-2';
+    const __addTiming = (label, val) => {
+        if (val === undefined || val === null) return;
+        const sm = document.createElement('small');
+        sm.className = 'text-muted me-2';
+        const i = document.createElement('i');
+        i.className = 'fas fa-stopwatch me-1';
+        sm.appendChild(i);
+        sm.appendChild(document.createTextNode(`${label}: ${Number(val).toFixed(1)}s`));
+        __timing.appendChild(sm);
+    };
+    __addTiming('逐字稿生成', data.ai_response_times.transcript);
+    __addTiming('摘要生成', data.ai_response_times.summary);
+    __addTiming('内容分析', data.ai_response_times.analysis);
+    progressDetail.appendChild(__timing);
+}
             
             // 显示逐字稿预览（如果已经生成）
             if (data.transcript_ready && data.transcript_preview) {
@@ -1164,7 +1187,14 @@ function updateProgress(data) {
             // 显示音频段处理进度（仅在语音转文字阶段）
             if (data.total_segments > 1 && data.progress_stage === '语音转文字') {
                 segmentProgress.style.display = 'block';
-                segmentProgress.innerHTML = `<i class="fas fa-tasks me-1"></i><strong>片段进度:</strong> ${data.processed_segments}/${data.total_segments} 个音频片段`;
+                segmentProgress.textContent = '';
+const __icoSeg = document.createElement('i');
+__icoSeg.className = 'fas fa-tasks me-1';
+segmentProgress.appendChild(__icoSeg);
+const __strongSeg = document.createElement('strong');
+__strongSeg.textContent = '片段进度:';
+segmentProgress.appendChild(__strongSeg);
+segmentProgress.appendChild(document.createTextNode(` ${data.processed_segments}/${data.total_segments} 个音频片段`));
             } else {
                 segmentProgress.style.display = 'none';
             }
@@ -1173,7 +1203,14 @@ function updateProgress(data) {
             if (data.estimated_time && data.estimated_time > 0) {
                 estimatedTime.style.display = 'block';
                 const minutes = Math.ceil(data.estimated_time / 60);
-                estimatedTime.innerHTML = `<i class="fas fa-clock me-1"></i><strong>预计还需:</strong> ${minutes} 分钟`;
+                estimatedTime.textContent = '';
+const __icoTime = document.createElement('i');
+__icoTime.className = 'fas fa-clock me-1';
+estimatedTime.appendChild(__icoTime);
+const __strongTime = document.createElement('strong');
+__strongTime.textContent = '预计还需:';
+estimatedTime.appendChild(__strongTime);
+estimatedTime.appendChild(document.createTextNode(` ${minutes} 分钟`));
             } else {
                 estimatedTime.style.display = 'none';
             }
@@ -1181,17 +1218,21 @@ function updateProgress(data) {
         case 'completed':
             statusMessage = '处理完成!';
             progressDetails.style.display = 'block';
-            progressStage.innerHTML = `<i class="fas fa-check-circle text-success me-1"></i><strong>已完成:</strong> 所有文件已生成`;
-            progressDetail.innerHTML = `<i class="fas fa-download me-1"></i>您现在可以下载结果文件`;
+            progressStage.textContent = '';
+{ const i = document.createElement('i'); i.className = 'fas fa-check-circle text-success me-1'; progressStage.appendChild(i); const s = document.createElement('strong'); s.textContent = '已完成:'; progressStage.appendChild(s); progressStage.appendChild(document.createTextNode(' 所有文件已生成')); }
+            progressDetail.textContent = '';
+{ const i = document.createElement('i'); i.className = 'fas fa-download me-1'; progressDetail.appendChild(i); progressDetail.appendChild(document.createTextNode('您现在可以下载结果文件')); }
             segmentProgress.style.display = 'none';
             estimatedTime.style.display = 'none';
             break;
         case 'failed':
             statusMessage = '处理失败';
             progressDetails.style.display = 'block';
-            progressStage.innerHTML = `<i class="fas fa-exclamation-triangle text-danger me-1"></i><strong>错误:</strong> 处理失败`;
+            progressStage.textContent = '';
+{ const i = document.createElement('i'); i.className = 'fas fa-exclamation-triangle text-danger me-1'; progressStage.appendChild(i); const s = document.createElement('strong'); s.textContent = '错误:'; progressStage.appendChild(s); progressStage.appendChild(document.createTextNode(' 处理失败')); }
             if (data.error_message) {
-                progressDetail.innerHTML = `<i class="fas fa-info-circle me-1"></i>${data.error_message}`;
+                progressDetail.textContent = '';
+{ const i = document.createElement('i'); i.className = 'fas fa-info-circle me-1'; progressDetail.appendChild(i); progressDetail.appendChild(document.createTextNode(String(data.error_message))); }
             }
             segmentProgress.style.display = 'none';
             estimatedTime.style.display = 'none';
@@ -2439,18 +2480,24 @@ function showAlert(message, type = 'info') {
     if (existingAlert) {
         existingAlert.remove();
     }
-    
-    // 创建新的提示
+
+    // 创建安全的提示结构，避免注入
     const alert = document.createElement('div');
     alert.className = `alert alert-${type} alert-dismissible fade show bounce-in`;
-    alert.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    
-    // 插入到页面顶部
-    document.querySelector('main').insertBefore(alert, document.querySelector('main').firstChild);
-    
+
+    const textSpan = document.createElement('span');
+    textSpan.textContent = String(message || '');
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn-close';
+    closeBtn.setAttribute('data-bs-dismiss', 'alert');
+
+    alert.appendChild(textSpan);
+    alert.appendChild(closeBtn);
+
+    const mainEl = document.querySelector('main') || document.body;
+    mainEl.insertBefore(alert, mainEl.firstChild);
+
     // 自动隐藏
     setTimeout(() => {
         if (alert.parentNode) {
