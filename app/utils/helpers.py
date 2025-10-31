@@ -51,15 +51,22 @@ def is_valid_url(url: str) -> bool:
     
     return url_pattern.match(url) is not None
 
-def sanitize_filename(filename: str) -> str:
-    """清理文件名，移除特殊字符"""
+def sanitize_filename(filename: str, default_name: str = "file", max_length: int = 200) -> str:
+    """清理文件名，移除特殊字符并适配 Windows 规则
+
+    - 替换非法字符为下划线
+    - 去掉首尾空格与点（Windows 特殊规则）
+    - 为空则回退到 default_name
+    - 限制最大长度
+    """
     import re
-    # 移除或替换特殊字符
-    filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
-    # 限制长度
-    if len(filename) > 200:
-        filename = filename[:200]
-    return filename.strip()
+    sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename or "")
+    sanitized = sanitized.strip(' .')
+    if not sanitized:
+        sanitized = default_name
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length]
+    return sanitized
 
 def get_video_platform(url: str) -> str:
     """识别视频平台"""

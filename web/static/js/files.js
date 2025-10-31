@@ -141,7 +141,7 @@ class FilesManager {
                 <td>
                     <div class="d-flex flex-column">
                         <span class="fw-medium">${this.escapeHtml(file.file_name)}</span>
-                        <small class="text-muted">${file.description}</small>
+                        <small class="text-muted">${this.escapeHtml(file.description)}</small>
                     </div>
                 </td>
                 <td>
@@ -509,19 +509,30 @@ class FilesManager {
     }
 
     showToast(message, type) {
-        // 创建一个简单的toast提示
+        // 创建一个简单的toast提示（安全渲染）
         const toast = document.createElement('div');
         toast.className = `alert alert-${type} position-fixed top-0 end-0 m-3`;
         toast.style.zIndex = '9999';
-        toast.innerHTML = `
-            <div class="d-flex align-items-center">
-                <span class="me-2">${message}</span>
-                <button type="button" class="btn-close" onclick="this.parentElement.parentElement.remove()"></button>
-            </div>
-        `;
-        
+
+        const wrap = document.createElement('div');
+        wrap.className = 'd-flex align-items-center';
+
+        const span = document.createElement('span');
+        span.className = 'me-2';
+        span.textContent = message || '';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'btn-close';
+        closeBtn.addEventListener('click', () => {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+        });
+
+        wrap.appendChild(span);
+        wrap.appendChild(closeBtn);
+        toast.appendChild(wrap);
         document.body.appendChild(toast);
-        
+
         // 3秒后自动消失
         setTimeout(() => {
             if (toast.parentNode) {

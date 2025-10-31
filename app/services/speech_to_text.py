@@ -6,22 +6,7 @@ from typing import List, Dict, Any
 from app.config.settings import Config
 import logging
 
-# 统一将模块 print 输出到日志
-_logger = logging.getLogger(__name__)
-def _log_print(*args, **kwargs):
-    try:
-        msg = ' '.join(str(a) for a in args)
-    except Exception:
-        msg = ' '.join(repr(a) for a in args)
-    level = kwargs.pop('level', None)
-    if level == 'error':
-        _logger.error(msg)
-    elif level == 'warning':
-        _logger.warning(msg)
-    else:
-        _logger.info(msg)
-
-print = _log_print
+logger = logging.getLogger(__name__)
 
 class SpeechToText:
     def __init__(self, api_config=None):
@@ -92,21 +77,21 @@ class SpeechToText:
                     # 检查结果是否有效
                     if not text or len(text.strip()) == 0:
                         if retry < max_retries - 1:
-                            print(f"音频文件返回空文本，第 {retry+1} 次重试...")
+                            logger.warning(f"音频文件返回空文本，第 {retry+1} 次重试...")
                             time.sleep(2)  # 重试前等待
                             continue
                         else:
-                            print(f"音频文件重试{max_retries}次后仍返回空文本")
+                            logger.error(f"音频文件重试{max_retries}次后仍返回空文本")
                             raise Exception("语音转文字失败：API返回空文本")
                     
                     # 检查最小文本长度（避免只返回标点符号或单个字符）
                     if len(text.strip()) < 3:
                         if retry < max_retries - 1:
-                            print(f"音频文件返回文本过短（{len(text.strip())}字符），第 {retry+1} 次重试...")
+                            logger.warning(f"音频文件返回文本过短（{len(text.strip())}字符），第 {retry+1} 次重试...")
                             time.sleep(2)  # 重试前等待
                             continue
                         else:
-                            print(f"音频文件重试{max_retries}次后仍返回过短文本")
+                            logger.error(f"音频文件重试{max_retries}次后仍返回过短文本")
                             raise Exception(f"语音转文字失败：API返回文本过短（{len(text.strip())}字符）")
                     
                     # 硅基流动API不返回详细的时间戳信息，所以segments为空
@@ -119,13 +104,13 @@ class SpeechToText:
                     
             except requests.exceptions.RequestException as e:
                 if retry < max_retries - 1:
-                    print(f"API请求失败: {e}，第 {retry+1} 次重试...")
+                    logger.warning(f"API请求失败: {e}，第 {retry+1} 次重试...")
                     time.sleep(2)  # 重试前等待
                 else:
                     raise Exception(f"语音转文字请求失败: {e}")
             except json.JSONDecodeError as e:
                 if retry < max_retries - 1:
-                    print(f"API返回格式错误，第 {retry+1} 次重试...")
+                    logger.warning(f"API返回格式错误，第 {retry+1} 次重试...")
                     time.sleep(2)  # 重试前等待
                 else:
                     raise Exception("API返回格式错误")

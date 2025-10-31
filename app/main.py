@@ -11,6 +11,11 @@ from app.services.text_processor import TextProcessor
 from app.services.file_uploader import FileUploader
 from app.models.data_models import UploadTask
 from app.utils.error_handler import api_error_handler, safe_json_response
+from app.utils.provider_tester import (
+    test_siliconflow as _pt_test_siliconflow,
+    test_openai_compatible as _pt_test_openai,
+    test_gemini as _pt_test_gemini,
+)
 import logging
 import ipaddress
 from urllib.parse import urlparse
@@ -74,6 +79,24 @@ def _is_safe_base_url(url: str) -> bool:
         return True
     except Exception:
         return False
+
+def _validate_runtime_api_config(api_config: dict):
+    """校验前端透传的运行时 API 配置中的 base_url，沿用同一套安全策略。
+
+    说明：为保持向后兼容，是否允许 http/私网/白名单，继续受
+    ALLOW_INSECURE_HTTP/ALLOW_PRIVATE_ADDRESSES/ENFORCE_API_HOSTS_WHITELIST 等开关控制。
+    """
+    try:
+        if not isinstance(api_config, dict):
+            return
+        tp = (api_config.get('text_processor') or {})
+        sf = (api_config.get('siliconflow') or {})
+        for base_url in (tp.get('base_url'), sf.get('base_url')):
+            if base_url and not _is_safe_base_url(str(base_url)):
+                raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
+    except Exception:
+        # 统一由路由装饰器处理异常响应
+        raise
 
 try:
     import openai
@@ -322,6 +345,12 @@ def process_upload():
     
     llm_provider = data.get('llm_provider', 'openai')
     api_config = data.get('api_config', {})
+    # 校验运行时配置中的 base_url，沿用与测试接口一致的安全策略
+    try:
+        if api_config:
+            _validate_runtime_api_config(api_config)
+    except Exception as e:
+        raise ValueError(str(e))
     
     logging.info(f"process_upload请求: task_id={task_id}, llm_provider={llm_provider}")
     
@@ -410,6 +439,12 @@ def process_video():
         
     llm_provider = data.get('llm_provider', 'openai')
     api_config = data.get('api_config', {})
+    # 校验运行时配置中的 base_url，沿用与测试接口一致的安全策略
+    try:
+        if api_config:
+            _validate_runtime_api_config(api_config)
+    except Exception as e:
+        raise ValueError(str(e))
     youtube_cookies = data.get('youtube_cookies', '')  # 获取 YouTube cookies
     
     # 创建任务（支持 cookies 参数）
@@ -993,25 +1028,13 @@ def test_siliconflow_connection(config):
     if not config.get('api_key'):
         raise ValueError('API Key未提供')
     
-    import requests
     base_url = config.get('base_url') or 'https://api.siliconflow.cn/v1'
     if not _is_safe_base_url(base_url):
         raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
-    headers = {'Authorization': f'Bearer {config["api_key"]}'}
-    
-    response = requests.get(
-        f"{base_url}/models",
-        headers=headers,
-        timeout=10
-    )
-    
-    if response.status_code == 200:
-        return safe_json_response(
-            success=True,
-            message=f'硅基流动API连接成功，模型: {config.get("model", "")}'
-        )
-    else:
-        raise ConnectionError(f'API响应错误: {response.status_code}')
+    ok, msg = _pt_test_siliconflow(config['api_key'], base_url, config.get('model'))
+    if ok:
+        return safe_json_response(success=True, message=msg)
+    raise ConnectionError(msg)
 
 def test_text_processor_connection(config):
     """测试文本处理器连接"""
@@ -1034,25 +1057,13 @@ def test_siliconflow_text_processor(config):
     if not config.get('api_key'):
         raise ValueError('API Key未提供')
     
-    import requests
-    headers = {'Authorization': f'Bearer {config["api_key"]}'}
     base_url = config.get('base_url') or 'https://api.siliconflow.cn/v1'
     if not _is_safe_base_url(base_url):
         raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
-    
-    response = requests.get(
-        f"{base_url}/models",
-        headers=headers,
-        timeout=10
-    )
-    
-    if response.status_code == 200:
-        return safe_json_response(
-            success=True,
-            message=f'硅基流动文本处理API连接成功，模型: {config.get("model", "Qwen/Qwen3-Coder-30B-A3B-Instruct")}'
-        )
-    else:
-        raise ConnectionError(f'API响应错误: {response.status_code}')
+    ok, msg = _pt_test_siliconflow(config['api_key'], base_url, config.get('model', 'Qwen/Qwen3-Coder-30B-A3B-Instruct'))
+    if ok:
+        return safe_json_response(success=True, message=f'硅基流动文本处理API连接成功，模型: {config.get("model", "Qwen/Qwen3-Coder-30B-A3B-Instruct")}')
+    raise ConnectionError(msg)
 
 def test_openai_connection(config, is_text_processor=False):
     """测试OpenAI连接（包括自定义兼容OpenAI的API），使用模型列表，不消耗token"""
@@ -1070,16 +1081,9 @@ def test_openai_connection(config, is_text_processor=False):
     try:
         if config.get('base_url') and not _is_safe_base_url(config.get('base_url')):
             raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
-        client = openai.OpenAI(
-            api_key=config.get('api_key'),
-            base_url=config.get('base_url') if config.get('base_url') else None
-        )
-        
-        # 使用模型列表进行测试
-        models = client.models.list()
-        if not list(models):
+        ok, _ = _pt_test_openai(config.get('api_key'), config.get('base_url'), config.get('model'))
+        if not ok:
             raise ConnectionError("模型列表为空，请检查API密钥或Base URL")
-        
         # 根据是否为自定义提供商显示不同的成功消息
         if is_text_processor and config.get('actual_provider') == 'custom':
             service_type = "自定义文本处理"
@@ -1087,12 +1091,7 @@ def test_openai_connection(config, is_text_processor=False):
         else:
             service_type = "文本处理" if is_text_processor else ""
             model_info = config.get('model', '未知')
-            
-        return safe_json_response(
-            success=True,
-            message=f'OpenAI {service_type}API连接成功，模型: {model_info} (通过模型列表测试)'
-        )
-        
+        return safe_json_response(success=True, message=f'OpenAI {service_type}API连接成功，模型: {model_info} (通过模型列表测试)')
     except Exception as e:
         # 提供更详细的错误信息
         error_msg = str(e)
@@ -1120,21 +1119,17 @@ def test_gemini_connection(config, is_text_processor=False):
         if not _is_safe_base_url(config.get('base_url')):
             raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
     
-    model = genai.GenerativeModel(config.get('model', 'gemini-pro'))
-    response = model.generate_content("Hello")
+    ok, _ = _pt_test_gemini(config.get('api_key'), config.get('base_url'), config.get('model', 'gemini-pro'))
     
     service_type = "文本处理" if is_text_processor else ""
-    return safe_json_response(
-        success=True,
-        message=f'Gemini {service_type}API连接成功，模型: {config.get("model", "gemini-pro")}'
-    )
+    return safe_json_response(success=True, message=f'Gemini {service_type}API连接成功，模型: {config.get("model", "gemini-pro")}')
 
 @main_bp.route('/api/stop-all-tasks', methods=['POST'])
 @api_error_handler
 def stop_all_tasks():
     """停止所有正在处理的任务"""
     try:
-        # 提前处理并返回，修正文案与避免乱码
+        # 标记并收集需要停止的任务
         processing_tasks = video_processor.cancel_all_processing()
         if not processing_tasks:
             return safe_json_response(
@@ -1142,16 +1137,7 @@ def stop_all_tasks():
                 message="当前没有正在处理的任务",
                 data={'stopped_tasks': []}
             )
-        # 标记取消所有正在处理的任务
-        processing_tasks = video_processor.cancel_all_processing()
-        
-        if not processing_tasks:
-            return safe_json_response(
-                success=True,
-                message="当前没有正在处理的任务",
-                data={'stopped_tasks': []}
-            )
-        
+
         # 停止所有正在处理的任务
         stopped_count = 0
         for task_id in processing_tasks:
@@ -1161,23 +1147,13 @@ def stop_all_tasks():
                 task.error_message = "用户手动停止任务"
                 task.progress = 0
                 task.progress_stage = "已停止"
-                task.progress_stage = "已停止"
                 task.progress_detail = "任务已被用户手动停止"
                 stopped_count += 1
                 logging.info(f"手动停止任务: {task_id}")
-        
+
         # 保存任务状态
         video_processor.save_tasks_to_disk()
 
-        return safe_json_response(
-            success=True,
-            message=f"成功停止 {stopped_count} 个任务",
-            data={
-                'stopped_tasks': processing_tasks,
-                'stopped_count': stopped_count
-            }
-        )
-        
         return safe_json_response(
             success=True,
             message=f"成功停止 {stopped_count} 个任务",

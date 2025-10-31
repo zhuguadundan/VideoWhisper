@@ -1254,70 +1254,128 @@ function showTranscriptPreview(preview, fullTranscript) {
         previewDiv = document.createElement('div');
         previewDiv.id = 'transcriptPreview';
         previewDiv.className = 'mt-3 p-3 bg-light border rounded fade-in';
-        
         // 插入到进度详情后面
         const progressDetails = document.getElementById('progressDetails');
         progressDetails.appendChild(previewDiv);
     }
-    
-    previewDiv.innerHTML = `
-        <h6><i class="fas fa-file-lines me-2 text-primary"></i>逐字稿预览 <small class="text-muted">(可先查看内容)</small></h6>
-        <div class="transcript-content" style="max-height: 200px; overflow-y: auto; background: white; padding: 10px; border: 1px solid #dee2e6; border-radius: 4px; font-size: 0.9em; line-height: 1.5;">
-            ${preview.replace(/\n/g, '<br>')}
-        </div>
-        <div class="mt-2">
-            <button class="btn btn-sm btn-outline-primary" onclick="showFullTranscript()">
-                <i class="fas fa-expand me-1"></i>查看完整逐字稿
-            </button>
-        </div>
-    `;
-    
+
+    // 清空容器，安全渲染
+    previewDiv.textContent = '';
+
+    const title = document.createElement('h6');
+    const icon = document.createElement('i');
+    icon.className = 'fas fa-file-lines me-2 text-primary';
+    title.appendChild(icon);
+    title.appendChild(document.createTextNode('逐字稿预览 '));
+    const sm = document.createElement('small');
+    sm.className = 'text-muted';
+    sm.textContent = '(可先查看内容)';
+    title.appendChild(sm);
+
+    const content = document.createElement('div');
+    content.className = 'transcript-content';
+    content.style.maxHeight = '200px';
+    content.style.overflowY = 'auto';
+    content.style.background = 'white';
+    content.style.padding = '10px';
+    content.style.border = '1px solid #dee2e6';
+    content.style.borderRadius = '4px';
+    content.style.fontSize = '0.9em';
+    content.style.lineHeight = '1.5';
+    content.style.whiteSpace = 'pre-wrap';
+    content.textContent = preview || '';
+
+    const actions = document.createElement('div');
+    actions.className = 'mt-2';
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-sm btn-outline-primary';
+    btn.innerHTML = '<i class="fas fa-expand me-1"></i>查看完整逐字稿';
+    btn.addEventListener('click', showFullTranscript);
+    actions.appendChild(btn);
+
+    previewDiv.appendChild(title);
+    previewDiv.appendChild(content);
+    previewDiv.appendChild(actions);
+
     // 存储完整逐字稿
-    previewDiv.dataset.fullTranscript = fullTranscript;
+    previewDiv.dataset.fullTranscript = fullTranscript || '';
     previewDiv.style.display = 'block';
 }
 
 // 显示完整逐字稿
 function showFullTranscript() {
     const previewDiv = document.getElementById('transcriptPreview');
-    const fullTranscript = previewDiv.dataset.fullTranscript;
-    
-    if (fullTranscript) {
-        // 创建模态框显示完整逐字稿
-        const modal = document.createElement('div');
-        modal.className = 'modal fade';
-        modal.id = 'transcriptModal';
-        modal.innerHTML = `
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title"><i class="fas fa-file-lines me-2"></i>完整逐字稿</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="transcript-content" style="max-height: 60vh; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 4px; font-size: 0.95em; line-height: 1.6; white-space: pre-wrap;">
-                            ${fullTranscript.replace(/\n/g, '<br>')}
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                        <button type="button" class="btn btn-primary" onclick="copyToClipboard('${fullTranscript.replace(/'/g, '\\\'')}')">
-                            <i class="fas fa-copy me-1"></i>复制文本
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.body.appendChild(modal);
-        const bsModal = new bootstrap.Modal(modal);
-        bsModal.show();
-        
-        // 模态框关闭后移除元素
-        modal.addEventListener('hidden.bs.modal', () => {
-            document.body.removeChild(modal);
-        });
-    }
+    const fullTranscript = (previewDiv && previewDiv.dataset.fullTranscript) || '';
+
+    // 创建模态框显示完整逐字稿（安全渲染）
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.id = 'transcriptModal';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'modal-dialog modal-lg';
+    const content = document.createElement('div');
+    content.className = 'modal-content';
+
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    const title = document.createElement('h5');
+    title.className = 'modal-title';
+    const icon = document.createElement('i');
+    icon.className = 'fas fa-file-lines me-2';
+    title.appendChild(icon);
+    title.appendChild(document.createTextNode('完整逐字稿'));
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn-close';
+    closeBtn.setAttribute('data-bs-dismiss', 'modal');
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    const transcriptBox = document.createElement('div');
+    transcriptBox.className = 'transcript-content';
+    Object.assign(transcriptBox.style, {
+        maxHeight: '60vh',
+        overflowY: 'auto',
+        background: '#f8f9fa',
+        padding: '15px',
+        borderRadius: '4px',
+        fontSize: '0.95em',
+        lineHeight: '1.6',
+        whiteSpace: 'pre-wrap'
+    });
+    transcriptBox.textContent = fullTranscript;
+    body.appendChild(transcriptBox);
+
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer';
+    const btnClose = document.createElement('button');
+    btnClose.type = 'button';
+    btnClose.className = 'btn btn-secondary';
+    btnClose.setAttribute('data-bs-dismiss', 'modal');
+    btnClose.textContent = '关闭';
+    const btnCopy = document.createElement('button');
+    btnCopy.type = 'button';
+    btnCopy.className = 'btn btn-primary';
+    btnCopy.innerHTML = '<i class="fas fa-copy me-1"></i>复制文本';
+    btnCopy.addEventListener('click', () => copyToClipboard(fullTranscript));
+    footer.appendChild(btnClose);
+    footer.appendChild(btnCopy);
+
+    content.appendChild(header);
+    content.appendChild(body);
+    content.appendChild(footer);
+    dialog.appendChild(content);
+    modal.appendChild(dialog);
+
+    document.body.appendChild(modal);
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+    modal.addEventListener('hidden.bs.modal', () => {
+        if (modal.parentNode) modal.parentNode.removeChild(modal);
+    });
 }
 
 // 复制到剪贴板
@@ -1432,18 +1490,24 @@ function displayResults(data) {
         if (data.summary.keywords) {
             const keywords = Array.isArray(data.summary.keywords) ? 
                 data.summary.keywords : data.summary.keywords.split(',').map(k => k.trim());
-            
-            keywordsContainer.innerHTML = keywords.map(keyword => 
-                `<span class="keyword-tag">${keyword}</span>`
-            ).join('');
+            // 安全渲染关键词
+            keywordsContainer.textContent = '';
+            keywords.forEach((kw) => {
+                const tag = document.createElement('span');
+                tag.className = 'keyword-tag';
+                tag.textContent = kw;
+                keywordsContainer.appendChild(tag);
+            });
         } else {
-            keywordsContainer.innerHTML = '<span class="text-muted">无关键词</span>';
+            keywordsContainer.textContent = '无关键词';
+            keywordsContainer.classList.add('text-muted');
         }
         
         // 将Markdown转换为HTML显示
         if (data.summary.detailed_summary) {
-            document.getElementById('detailedSummary').innerHTML = 
-                data.summary.detailed_summary.replace(/\n/g, '<br>');
+            const ds = document.getElementById('detailedSummary');
+            ds.style.whiteSpace = 'pre-wrap';
+            ds.textContent = data.summary.detailed_summary;
         }
     }
     
@@ -2259,45 +2323,78 @@ async function loadHistoryTasks() {
 // 显示历史任务
 function displayHistoryTasks(tasks) {
     const tbody = document.getElementById('tasksTableBody');
-    
+
+    // 清空
+    tbody.textContent = '';
+
     if (!tasks || tasks.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">暂无历史任务</td></tr>';
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = 4;
+        td.className = 'text-center text-muted';
+        td.textContent = '暂无历史任务';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
         return;
     }
-    
-    tbody.innerHTML = tasks.map(task => {
-        const statusClass = `status-${task.status}`;
-        const statusText = getStatusText(task.status);
+
+    tasks.forEach(task => {
+        const tr = document.createElement('tr');
+
+        // 标题
+        const tdTitle = document.createElement('td');
+        const titleDiv = document.createElement('div');
+        titleDiv.className = 'text-truncate';
+        titleDiv.style.maxWidth = '300px';
         const title = task.title || '未知标题';
-        
-        return `
-            <tr>
-                <td>
-                    <div class="text-truncate" style="max-width: 300px;" title="${title}">
-                        ${title}
-                    </div>
-                </td>
-                <td>
-                    <span class="badge bg-secondary ${statusClass}">
-                        <span class="status-icon"></span>
-                        ${statusText}
-                    </span>
-                    ${task.status === 'processing' ? `<small class="text-muted ms-1">(${task.progress}%)</small>` : ''}
-                </td>
-                <td><small>${task.created_at}</small></td>
-                <td>
-                    ${task.status === 'completed' ? 
-                        `<button class="btn btn-sm btn-outline-primary" onclick="loadTaskResult('${task.id}')">
-                            <i class="fas fa-eye me-1"></i>查看
-                        </button>` : 
-                        `<button class="btn btn-sm btn-outline-secondary" disabled>
-                            ${task.status === 'processing' ? '处理中...' : '不可用'}
-                        </button>`
-                    }
-                </td>
-            </tr>
-        `;
-    }).join('');
+        titleDiv.title = title;
+        titleDiv.textContent = title;
+        tdTitle.appendChild(titleDiv);
+
+        // 状态
+        const tdStatus = document.createElement('td');
+        const badge = document.createElement('span');
+        badge.className = `badge bg-secondary status-${task.status}`;
+        const icon = document.createElement('span');
+        icon.className = 'status-icon';
+        const text = document.createTextNode(getStatusText(task.status));
+        badge.appendChild(icon);
+        badge.appendChild(document.createTextNode(' '));
+        badge.appendChild(text);
+        tdStatus.appendChild(badge);
+        if (task.status === 'processing') {
+            const small = document.createElement('small');
+            small.className = 'text-muted ms-1';
+            small.textContent = `(${task.progress}%)`;
+            tdStatus.appendChild(small);
+        }
+
+        // 时间
+        const tdTime = document.createElement('td');
+        const smallTime = document.createElement('small');
+        smallTime.textContent = task.created_at || '';
+        tdTime.appendChild(smallTime);
+
+        // 操作
+        const tdOps = document.createElement('td');
+        const btn = document.createElement('button');
+        if (task.status === 'completed') {
+            btn.className = 'btn btn-sm btn-outline-primary';
+            btn.innerHTML = '<i class="fas fa-eye me-1"></i>查看';
+            btn.addEventListener('click', () => loadTaskResult(task.id));
+        } else {
+            btn.className = 'btn btn-sm btn-outline-secondary';
+            btn.disabled = true;
+            btn.textContent = task.status === 'processing' ? '处理中...' : '不可用';
+        }
+        tdOps.appendChild(btn);
+
+        tr.appendChild(tdTitle);
+        tr.appendChild(tdStatus);
+        tr.appendChild(tdTime);
+        tr.appendChild(tdOps);
+        tbody.appendChild(tr);
+    });
 }
 
 // 获取状态文本

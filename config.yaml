@@ -25,6 +25,15 @@ system:
   audio_format: "wav"
   audio_sample_rate: 16000
 
+# 处理参数（可选，均有默认值，按需覆盖）
+processing:
+  long_audio_threshold_seconds: 300      # 超过此时长视为长音频
+  segment_duration_seconds: 300          # 长音频分段长度
+  max_consecutive_failures: 3            # 分段转写连续失败上限
+  short_audio_max_retries: 3             # 短音频重试次数
+  retry_sleep_short_seconds: 1.0         # 成功或轻微退避等待
+  retry_sleep_long_seconds: 2.0          # 失败后的退避等待
+
 # 安全配置（可选）
 security:
   # 连接测试接口允许访问的 API 域名白名单（可选）。

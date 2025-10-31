@@ -296,29 +296,49 @@ class APIConfigManager {
         }
     }
 
-    // 显示提示消息
+    // 显示提示消息（安全渲染，避免XSS）
     showToast(type, title, message) {
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
-        toast.innerHTML = `
-            <div class="toast-header">
-                <div class="toast-icon me-2">
-                    <i class="fas ${type === 'success' ? 'fa-circle-check text-success' : 
-                                   type === 'error' ? 'fa-circle-exclamation text-danger' : 
-                                   'fa-circle-info text-warning'}"></i>
-                </div>
-                <strong class="me-auto">${title}</strong>
-                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
-            </div>
-            <div class="toast-body">${message}</div>
-        `;
-        
+
+        const header = document.createElement('div');
+        header.className = 'toast-header';
+
+        const iconWrap = document.createElement('div');
+        iconWrap.className = 'toast-icon me-2';
+        const icon = document.createElement('i');
+        const iconClass = type === 'success' ? 'fa-circle-check text-success' :
+                          type === 'error' ? 'fa-circle-exclamation text-danger' :
+                          'fa-circle-info text-warning';
+        icon.className = `fas ${iconClass}`;
+        iconWrap.appendChild(icon);
+
+        const strong = document.createElement('strong');
+        strong.className = 'me-auto';
+        strong.textContent = title || '';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'btn-close';
+        closeBtn.setAttribute('data-bs-dismiss', 'toast');
+
+        header.appendChild(iconWrap);
+        header.appendChild(strong);
+        header.appendChild(closeBtn);
+
+        const body = document.createElement('div');
+        body.className = 'toast-body';
+        body.textContent = message || '';
+
+        toast.appendChild(header);
+        toast.appendChild(body);
+
         document.body.appendChild(toast);
         const bsToast = new bootstrap.Toast(toast);
         bsToast.show();
-        
+
         toast.addEventListener('hidden.bs.toast', () => {
-            document.body.removeChild(toast);
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
         });
     }
 

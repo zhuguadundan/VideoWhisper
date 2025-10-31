@@ -1,6 +1,7 @@
 flask==2.3.3
-yt-dlp==2025.8.27
-openai==1.99.1
+# 使用已发布稳定版本范围，避免固定到不可用的未来版本
+yt-dlp>=2024.08.06
+openai>=1.30.0,<2
 google-generativeai==0.3.0
 requests==2.31.0
 pyyaml==6.0.1

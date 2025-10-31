@@ -7,6 +7,8 @@ import os
 import sys
 import socket
 import ssl
+import ipaddress
+import logging
 from datetime import datetime, timedelta
 from cryptography import x509
 from cryptography.x509.oid import NameOID
@@ -112,23 +114,30 @@ class CertificateManager:
                 ip_addresses = []
                 try:
                     local_ip = socket.gethostbyname(socket.gethostname())
-                    ip_addresses.append(x509.IPAddress(local_ip))
-                except:
+                    ip_obj = ipaddress.ip_address(local_ip)
+                    ip_addresses.append(x509.IPAddress(ip_obj))
+                except Exception:
                     pass
-                
+
                 # 添加localhost IP
-                ip_addresses.append(x509.IPAddress("127.0.0.1"))
-                
+                try:
+                    ip_addresses.append(x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")))
+                except Exception:
+                    pass
+
+                san_list = [
+                    x509.DNSName(self.domain),
+                    x509.DNSName(f"*.{self.domain}"),
+                    x509.DNSName("localhost"),
+                ] + ip_addresses
+
                 cert = cert.add_extension(
-                    x509.SubjectAlternativeName([
-                        x509.DNSName(self.domain),
-                        x509.DNSName(f"*.{self.domain}"),
-                        x509.DNSName("localhost"),
-                    ] + ip_addresses),
+                    x509.SubjectAlternativeName(san_list),
                     critical=False
                 )
             except Exception as e:
-                # 如果IP地址获取失败，只使用域名
+                # 如果SAN构造失败，记录告警并回退仅域名
+                logging.warning(f"SAN 构造失败，回退仅域名: {e}")
                 cert = cert.add_extension(
                     x509.SubjectAlternativeName([
                         x509.DNSName(self.domain),

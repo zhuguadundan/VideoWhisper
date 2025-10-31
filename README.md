@@ -119,6 +119,13 @@ pytest -q
 - **summary.md** - AI智能摘要报告  
 - **data.json** - 完整处理数据
 
+## ⚙️ 可调处理参数（config.yaml）
+- `processing.long_audio_threshold_seconds`：超过该秒数视为长音频（默认 300）
+- `processing.segment_duration_seconds`：长音频分段长度（默认 300）
+- `processing.max_consecutive_failures`：分段连续失败上限（默认 3）
+- `processing.short_audio_max_retries`：短音频重试次数（默认 3）
+- `processing.retry_sleep_short_seconds` / `retry_sleep_long_seconds`：成功/失败后的轻度退避（默认 1.0/2.0）
+
 ## 🧪 测试
 
 ```bash
@@ -161,4 +168,12 @@ Made with ❤️ by VideoWhisper Team
 - 生产环境建议改为“严格模式”以降低 SSRF 风险：
   - 设置 `security.allow_insecure_http: false`、`security.allow_private_addresses: false`；
   - 并启用白名单：`security.enforce_api_hosts_whitelist: true`，配合 `security.allowed_api_hosts`（或环境变量 `ALLOWED_API_HOSTS`）。
-- 说明：上述限制仅作用于“连接测试接口”，实际处理流程不会被此校验拦截。
+- 说明：上述限制默认同时作用于“连接测试接口”和“实际处理接口”，行为由同一组环境变量/配置开关控制（可按需调整以兼容旧部署）。
+
+## 维护者说明（近期技术改动）
+
+- 证书 SAN 修复：自签证书的 `SubjectAlternativeName` 现在正确包含 IP（使用 `ipaddress`），构造失败将记录告警并回退到仅域名 SAN（行为不变）。
+- 文件名清洗统一：所有文件名规范化统一由 `app/utils/helpers.py:sanitize_filename` 提供，保证 Windows 规则一致（替换非法字符、去除首尾空格与点、长度限制、空名回退）。
+- 连接测试收敛：不同提供商（SiliconFlow/OpenAI 兼容/Gemini）的连接测试已收敛到 `app/utils/provider_tester.py`，路由层仅做参数校验与安全校验。
+- 启动安全提示：保持默认兼容（允许 http/私网）不变，但启动时在日志里输出一次“生产建议关闭”的提示，便于逐步收紧。
+- 日志统一：服务层（downloader/audio_extractor/speech_to_text/file_uploader/file_manager）已统一使用 `logging.getLogger(__name__)`，去除 `print` 重定向；后续可按需将 `video_processor` 也全部替换为直接 `logger` 调用（当前其内部 `print` 已路由到日志，行为一致）。

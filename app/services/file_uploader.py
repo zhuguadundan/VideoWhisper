@@ -10,22 +10,7 @@ from app.services.file_manager import FileManager
 from app.models.data_models import UploadTask
 import logging
 
-# 统一将模块 print 输出到日志
-_logger = logging.getLogger(__name__)
-def _log_print(*args, **kwargs):
-    try:
-        msg = ' '.join(str(a) for a in args)
-    except Exception:
-        msg = ' '.join(repr(a) for a in args)
-    level = kwargs.pop('level', None)
-    if level == 'error':
-        _logger.error(msg)
-    elif level == 'warning':
-        _logger.warning(msg)
-    else:
-        _logger.info(msg)
-
-print = _log_print
+logger = logging.getLogger(__name__)
 
 
 class FileUploader:
@@ -255,7 +240,7 @@ class FileUploader:
                     
                     # 每10个chunk更新一次进度（避免过于频繁）
                     if chunk_count % 10 == 0 or progress == 100:
-                        print(f"[{upload_task.id}] 上传进度: {progress}% ({saved_size}/{file_size} bytes)")
+                        logger.info(f"[{upload_task.id}] 上传进度: {progress}% ({saved_size}/{file_size} bytes)")
             
             # 验证文件完整性
             if saved_size != file_size:
@@ -271,9 +256,9 @@ class FileUploader:
             # 计算文件哈希
             file_hash = self._calculate_file_hash(file_path)
             
-            print(f"[{upload_task.id}] 文件上传完成: {unique_filename}")
-            print(f"[{upload_task.id}] 文件路径: {file_path}")
-            print(f"[{upload_task.id}] 文件哈希: {file_hash}")
+            logger.info(f"[{upload_task.id}] 文件上传完成: {unique_filename}")
+            logger.debug(f"[{upload_task.id}] 文件路径: {file_path}")
+            logger.debug(f"[{upload_task.id}] 文件哈希: {file_hash}")
             
             return {
                 'success': True,

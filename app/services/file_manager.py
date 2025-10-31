@@ -6,22 +6,7 @@ from typing import List, Dict, Any
 from app.config.settings import Config
 import logging
 
-# 统一将模块 print 输出到日志
-_logger = logging.getLogger(__name__)
-def _log_print(*args, **kwargs):
-    try:
-        msg = ' '.join(str(a) for a in args)
-    except Exception:
-        msg = ' '.join(repr(a) for a in args)
-    level = kwargs.pop('level', None)
-    if level == 'error':
-        _logger.error(msg)
-    elif level == 'warning':
-        _logger.warning(msg)
-    else:
-        _logger.info(msg)
-
-print = _log_print
+logger = logging.getLogger(__name__)
 
 class FileManager:
     """文件管理器 - 处理临时文件的存储策略，支持Docker环境"""
@@ -63,7 +48,7 @@ class FileManager:
                     pass
                     
         except Exception as e:
-            print(f"创建目录时出错: {e}")
+            logger.error(f"创建目录时出错: {e}")
     
     def _is_docker_environment(self) -> bool:
         """检测是否运行在Docker环境中"""
@@ -88,7 +73,7 @@ class FileManager:
                         pass
                         
             except Exception as e:
-                print(f"初始化任务历史文件失败: {e}")
+                logger.error(f"初始化任务历史文件失败: {e}")
     
     def get_task_history(self) -> List[Dict[str, Any]]:
         """获取任务历史记录"""
@@ -106,7 +91,7 @@ class FileManager:
             with open(self.task_history_file, 'w', encoding='utf-8') as f:
                 json.dump(history, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"保存任务历史失败: {e}")
+            logger.error(f"保存任务历史失败: {e}")
     
     def register_task(self, task_id: str, files: List[str]):
         """注册新任务的文件"""
@@ -144,7 +129,7 @@ class FileManager:
                 for file_path in task.get('files', []):
                     if os.path.exists(file_path):
                         os.remove(file_path)
-                        print(f"清理临时文件: {file_path}")
+                        logger.info(f"清理临时文件: {file_path}")
                 
                 # 清理任务目录（如果为空）
                 task_temp_dir = os.path.join(self.temp_dir, task['task_id'])
@@ -152,25 +137,25 @@ class FileManager:
                     os.rmdir(task_temp_dir)
                     
             except Exception as e:
-                print(f"清理任务 {task['task_id']} 的文件时出错: {e}")
+                logger.error(f"清理任务 {task['task_id']} 的文件时出错: {e}")
     
     def get_task_temp_dir(self, task_id: str) -> str:
         """获取任务专用的临时目录"""
-        print(f"[DEBUG] get_task_temp_dir: task_id={task_id}")
-        print(f"[DEBUG] base temp_dir: {self.temp_dir}")
+        logger.debug(f"get_task_temp_dir: task_id={task_id}")
+        logger.debug(f"base temp_dir: {self.temp_dir}")
         
         task_temp_dir = os.path.join(self.temp_dir, task_id)
-        print(f"[DEBUG] task_temp_dir: {task_temp_dir}")
+        logger.debug(f"task_temp_dir: {task_temp_dir}")
         
         try:
             os.makedirs(task_temp_dir, exist_ok=True)
-            print(f"[DEBUG] 目录创建成功")
+            logger.debug("目录创建成功")
             
             # 验证目录是否真的存在
             if os.path.exists(task_temp_dir):
-                print(f"[DEBUG] 目录存在验证: 通过")
+                logger.debug("目录存在验证: 通过")
             else:
-                print(f"[ERROR] 目录存在验证: 失败")
+                logger.error("目录存在验证: 失败")
                 raise Exception(f"目录创建后不存在: {task_temp_dir}")
                 
             # 验证目录权限
@@ -179,9 +164,9 @@ class FileManager:
                 with open(test_file, 'w') as f:
                     f.write('test')
                 os.remove(test_file)
-                print(f"[DEBUG] 目录写权限验证: 通过")
+                logger.debug("目录写权限验证: 通过")
             except Exception as perm_error:
-                print(f"[ERROR] 目录写权限验证: 失败 - {perm_error}")
+                logger.error(f"目录写权限验证: 失败 - {perm_error}")
                 
         except Exception as e:
             print(f"[ERROR] 创建任务目录失败: {e}")

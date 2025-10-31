@@ -62,6 +62,24 @@ def create_app():
     # 重置并添加
     root_logger.handlers = [file_handler, stream_handler]
     
+    # 启动时一次性安全提示（保持默认向后兼容，不收紧）
+    try:
+        cfg = Config.load_config()
+        sec = (cfg.get('security') or {})
+        def _env_bool(name: str, default: bool) -> bool:
+            val = os.environ.get(name)
+            if val is None:
+                return bool(default)
+            return str(val).strip().lower() in ("1", "true", "yes", "on")
+        allow_insecure = _env_bool('ALLOW_INSECURE_HTTP', sec.get('allow_insecure_http', True))
+        allow_private = _env_bool('ALLOW_PRIVATE_ADDRESSES', sec.get('allow_private_addresses', True))
+        if allow_insecure:
+            logging.warning("安全提示：当前允许 http 连接测试（开发兼容）。生产建议设置 ALLOW_INSECURE_HTTP=false 或在 config.yaml.security 中关闭。")
+        if allow_private:
+            logging.warning("安全提示：当前允许访问私网/本地地址进行连接测试（开发兼容）。生产建议设置 ALLOW_PRIVATE_ADDRESSES=false 或在 config.yaml.security 中关闭。")
+    except Exception:
+        pass
+    
     def is_api_request():
         """判断是否是API请求"""
         return request.path.startswith('/api/')

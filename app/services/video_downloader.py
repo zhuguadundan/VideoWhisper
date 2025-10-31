@@ -6,24 +6,10 @@ import re
 from typing import Dict, Any, Optional
 from app.config.settings import Config
 from app.services.file_manager import FileManager
+from app.utils.helpers import sanitize_filename as utils_sanitize_filename
 import logging
 
-# 统一将模块 print 输出到日志
-_logger = logging.getLogger(__name__)
-def _log_print(*args, **kwargs):
-    try:
-        msg = ' '.join(str(a) for a in args)
-    except Exception:
-        msg = ' '.join(repr(a) for a in args)
-    level = kwargs.pop('level', None)
-    if level == 'error':
-        _logger.error(msg)
-    elif level == 'warning':
-        _logger.warning(msg)
-    else:
-        _logger.info(msg)
-
-print = _log_print
+logger = logging.getLogger(__name__)
 
 class VideoDownloader:
     """简化的视频下载器 - 仅支持音频下载"""
@@ -36,26 +22,8 @@ class VideoDownloader:
         os.makedirs(self.temp_dir, exist_ok=True)
     
     def _sanitize_filename(self, filename: str) -> str:
-        """清理文件名中的非法字符，适配Windows系统"""
-        # Windows禁用字符: < > : " | ? * \ /
-        # 同时处理其他可能引起问题的字符
-        illegal_chars = r'[<>:"|?*\\\\/]'
-        
-        # 替换非法字符为下划线
-        sanitized = re.sub(illegal_chars, '_', filename)
-        
-        # 移除开头结尾的空格和点号（Windows特殊要求）
-        sanitized = sanitized.strip(' .')
-        
-        # 限制长度避免路径过长问题（Windows路径限制）
-        if len(sanitized) > 100:
-            sanitized = sanitized[:100]
-        
-        # 如果清理后为空，使用默认名称
-        if not sanitized:
-            sanitized = 'audio_file'
-            
-        return sanitized
+        """统一文件名清洗，复用公共实现"""
+        return utils_sanitize_filename(filename, default_name='audio_file', max_length=100)
     
     def _get_ffmpeg_path(self) -> Optional[str]:
         """检测FFmpeg路径"""
@@ -87,7 +55,7 @@ class VideoDownloader:
                 if os.path.exists(path):
                     return path
         
-        print("警告: 未找到FFmpeg，请确保已安装FFmpeg并添加到系统PATH")
+        logger.warning("未找到FFmpeg，请确保已安装并添加到系统PATH")
         return None
     
     def _get_info_extraction_config(self, url: str, cookies_str: str = None) -> Dict[str, Any]:
@@ -126,15 +94,17 @@ class VideoDownloader:
             
             cookies_file.close()
             base_opts['cookiefile'] = cookies_file.name
+            # 记录临时cookie文件，调用方完成后负责清理
+            base_opts['_temp_cookiefile'] = cookies_file.name
         else:
             # 检查是否有cookies.txt文件
             cookies_path = os.path.join(os.getcwd(), 'cookies.txt')
             if os.path.exists(cookies_path):
                 base_opts['cookiefile'] = cookies_path
-                print(f"[DEBUG] 信息提取使用cookies文件: {cookies_path}")
+                logger.debug(f"信息提取使用cookies文件: {cookies_path}")
             else:
                 # *** 禁用浏览器cookies导入以避免权限问题 ***
-                print(f"[DEBUG] 信息提取跳过浏览器cookie导入")
+                logger.debug("信息提取跳过浏览器cookie导入")
         
         return base_opts
 
@@ -175,15 +145,17 @@ class VideoDownloader:
                 
                 cookies_file.close()
                 base_opts['cookiefile'] = cookies_file.name
+                # 记录临时cookie文件，调用方完成后负责清理
+                base_opts['_temp_cookiefile'] = cookies_file.name
             else:
                 # 尝试从 cookies 文件加载
                 cookies_path = os.path.join(os.getcwd(), 'cookies.txt')
                 if os.path.exists(cookies_path):
                     base_opts['cookiefile'] = cookies_path
-                    print(f"[DEBUG] 使用cookies文件: {cookies_path}")
+                    logger.debug(f"使用cookies文件: {cookies_path}")
                 else:
                     # *** 禁用浏览器cookies导入以避免权限问题 ***
-                    print(f"[DEBUG] 跳过浏览器cookie导入，避免权限问题")
+                    logger.debug("跳过浏览器cookie导入，避免权限问题")
                     # 不再尝试从浏览器导入cookies，这会导致权限错误
                     pass
         
@@ -256,12 +228,12 @@ class VideoDownloader:
                     
                     # 只在第一次尝试时显示调试信息
                     if i == 0:
-                        print(f"[DEBUG] 视频信息提取成功 (策略{i+1}):")
-                        print(f"  - channel: {info.get('channel', 'None')}")
-                        print(f"  - uploader: {info.get('uploader', 'None')}")
-                        print(f"  - uploader_id: {info.get('uploader_id', 'None')}")
-                        print(f"  - creator: {info.get('creator', 'None')}")
-                        print(f"  - 最终选择: {uploader}")
+                        logger.debug(f"视频信息提取成功 (策略{i+1}):")
+                        logger.debug(f"  - channel: {info.get('channel', 'None')}")
+                        logger.debug(f"  - uploader: {info.get('uploader', 'None')}")
+                        logger.debug(f"  - uploader_id: {info.get('uploader_id', 'None')}")
+                        logger.debug(f"  - creator: {info.get('creator', 'None')}")
+                        logger.debug(f"  - 最终选择: {uploader}")
                     
                     return {
                         'title': info.get('title', 'Unknown'),
@@ -274,7 +246,7 @@ class VideoDownloader:
                     
             except Exception as e:
                 if i < len(strategies) - 1:
-                    print(f"[INFO] 策略{i+1}失败，尝试策略{i+2}...")
+                    logger.info(f"策略{i+1}失败，尝试策略{i+2}...")
                     continue
                 else:
                     # 最后一次尝试也失败了
@@ -289,10 +261,18 @@ class VideoDownloader:
                                       f"原始错误: {error_msg}")
                     else:
                         raise Exception(f"无法获取视频信息: {error_msg}")
+            finally:
+                # 清理临时 cookies 文件（若有）
+                try:
+                    temp_cookie = current_opts.get('_temp_cookiefile') if 'current_opts' in locals() else None
+                    if temp_cookie and os.path.exists(temp_cookie):
+                        os.remove(temp_cookie)
+                except Exception:
+                    pass
     
     def download_audio_only(self, url: str, task_id: str, output_path: Optional[str] = None, cookies_str: str = None) -> str:
         """仅下载音频 - 带降级策略和文件名清理"""
-        print(f"[DEBUG] download_audio_only 开始: url={url}, task_id={task_id}")
+        logger.debug(f"download_audio_only 开始: url={url}, task_id={task_id}")
         
         # 尝试多种下载策略
         strategies = [
@@ -306,19 +286,19 @@ class VideoDownloader:
         
         for i, strategy in enumerate(strategies):
             try:
-                print(f"[DEBUG] 尝试下载策略 {i+1}")
+                logger.debug(f"尝试下载策略 {i+1}")
                 ydl_opts = self._get_downloader_config(url, cookies_str)
                 if 'youtube.com' in url or 'youtu.be' in url:
                     ydl_opts.update(strategy)
                 
                 # 获取任务临时目录
                 task_temp_dir = self.file_manager.get_task_temp_dir(task_id)
-                print(f"[DEBUG] 任务临时目录: {task_temp_dir}")
+                logger.debug(f"任务临时目录: {task_temp_dir}")
                 
                 # 使用安全的文件名模板
                 if not output_path:
                     output_path = os.path.join(task_temp_dir, '%(title)s.%(ext)s')
-                print(f"[DEBUG] 初始输出路径模板: {output_path}")
+                logger.debug(f"初始输出路径模板: {output_path}")
                     
                 ydl_opts.update({
                     'outtmpl': output_path,
@@ -335,92 +315,92 @@ class VideoDownloader:
                 })
                 
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    print(f"[DEBUG] 开始获取视频信息...")
+                    logger.debug("开始获取视频信息...")
                     # 首先获取视频信息
                     info = ydl.extract_info(url, download=False)
                     
                     # 清理标题作为文件名
                     original_title = info.get('title', 'audio_file')
-                    print(f"[DEBUG] 原始标题: {original_title}")
+                    logger.debug(f"原始标题: {original_title}")
                     safe_title = self._sanitize_filename(original_title)
-                    print(f"[DEBUG] 清理后标题: {safe_title}")
+                    logger.debug(f"清理后标题: {safe_title}")
                     
                     # 使用清理后的文件名重新构建路径
                     safe_output_path = os.path.join(task_temp_dir, f'{safe_title}.%(ext)s')
-                    print(f"[DEBUG] 安全输出路径模板: {safe_output_path}")
+                    logger.debug(f"安全输出路径模板: {safe_output_path}")
                     ydl_opts['outtmpl'] = safe_output_path
                     
                     # 重新创建ydl对象并下载
-                    print(f"[DEBUG] 开始下载音频...")
+                    logger.debug("开始下载音频...")
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl_download:
                         try:
                             info_download = ydl_download.extract_info(url, download=True)
-                            print(f"[DEBUG] yt-dlp下载完成")
+                            logger.debug("yt-dlp下载完成")
                         except Exception as download_error:
-                            print(f"[ERROR] yt-dlp下载失败: {download_error}")
-                            print(f"[ERROR] 错误类型: {type(download_error)}")
+                            logger.error(f"yt-dlp下载失败: {download_error}")
+                            logger.error(f"错误类型: {type(download_error)}")
                             raise download_error
                         
                         # 构建最终的音频文件路径
                         audio_filename = os.path.join(task_temp_dir, f'{safe_title}.wav')
-                        print(f"[DEBUG] 预期音频文件路径: {audio_filename}")
+                        logger.debug(f"预期音频文件路径: {audio_filename}")
                         
                         # 验证文件是否存在
                         if not os.path.exists(audio_filename):
-                            print(f"[DEBUG] 预期文件不存在，搜索实际生成的文件...")
+                            logger.debug("预期文件不存在，搜索实际生成的文件...")
                             # 列出目录中的所有文件
                             try:
                                 files_in_dir = os.listdir(task_temp_dir)
-                                print(f"[DEBUG] 目录中的文件: {files_in_dir}")
+                                logger.debug(f"目录中的文件: {files_in_dir}")
                                 
                                 # 尝试查找实际生成的文件
                                 for file in files_in_dir:
                                     file_path = os.path.join(task_temp_dir, file)
-                                    print(f"[DEBUG] 检查文件: {file} -> {file_path}")
+                                    logger.debug(f"检查文件: {file} -> {file_path}")
                                     if file.endswith('.wav') and safe_title in file:
                                         audio_filename = file_path
-                                        print(f"[DEBUG] 找到匹配文件: {audio_filename}")
+                                        logger.debug(f"找到匹配文件: {audio_filename}")
                                         break
                             except Exception as list_error:
-                                print(f"[ERROR] 列出目录文件失败: {list_error}")
+                                logger.error(f"列出目录文件失败: {list_error}")
                                 raise Exception(f"无法列出目录文件: {list_error}")
                         
-                        print(f"[DEBUG] 最终音频文件路径: {audio_filename}")
+                        logger.debug(f"最终音频文件路径: {audio_filename}")
                         if not os.path.exists(audio_filename):
                             raise Exception(f"音频文件未找到: {audio_filename}")
                     
                     # 注册文件到管理器
                     try:
-                        print(f"[DEBUG] 注册文件到管理器: {audio_filename}")
+                        logger.debug(f"注册文件到管理器: {audio_filename}")
                         self.file_manager.register_task(task_id, [audio_filename])
-                        print(f"[DEBUG] 文件注册成功")
+                        logger.debug("文件注册成功")
                     except Exception as register_error:
-                        print(f"[ERROR] 文件注册失败: {register_error}")
+                        logger.error(f"文件注册失败: {register_error}")
                         # 注册失败不影响主流程，继续执行
                     
-                    print(f"[INFO] 音频下载成功 (策略{i+1}): {audio_filename}")
+                    logger.info(f"音频下载成功 (策略{i+1}): {audio_filename}")
                     return audio_filename
                     
             except Exception as e:
                 error_msg = str(e)
-                print(f"[ERROR] 策略{i+1}失败: {error_msg}")
-                print(f"[ERROR] 错误类型: {type(e)}")
+                logger.error(f"策略{i+1}失败: {error_msg}")
+                logger.error(f"错误类型: {type(e)}")
                 
                 # 检查是否是Errno 22错误
                 if "[Errno 22]" in error_msg or "Invalid argument" in error_msg:
-                    print(f"[ERROR] 发现Errno 22错误，详细信息:")
-                    print(f"[ERROR] - 任务ID: {task_id}")
-                    print(f"[ERROR] - URL: {url}")
-                    print(f"[ERROR] - 策略: {strategy}")
+                    logger.error("发现Errno 22错误，详细信息:")
+                    logger.error(f"- 任务ID: {task_id}")
+                    logger.error(f"- URL: {url}")
+                    logger.error(f"- 策略: {strategy}")
                     if 'task_temp_dir' in locals():
-                        print(f"[ERROR] - 临时目录: {task_temp_dir}")
+                        logger.error(f"- 临时目录: {task_temp_dir}")
                     if 'safe_title' in locals():
-                        print(f"[ERROR] - 安全标题: {safe_title}")
+                        logger.error(f"- 安全标题: {safe_title}")
                     if 'safe_output_path' in locals():
-                        print(f"[ERROR] - 安全路径: {safe_output_path}")
+                        logger.error(f"- 安全路径: {safe_output_path}")
                 
                 if i < len(strategies) - 1:
-                    print(f"[INFO] 策略{i+1}失败，尝试策略{i+2}...")
+                    logger.info(f"策略{i+1}失败，尝试策略{i+2}...")
                     continue
                 else:
                     # 最后一次尝试也失败了
@@ -434,6 +414,14 @@ class VideoDownloader:
                                       f"原始错误: {error_msg}")
                     else:
                         raise Exception(f"音频下载失败 (所有策略均失败): {error_msg}")
+            finally:
+                # 清理临时 cookies 文件（若有）
+                try:
+                    temp_cookie = ydl_opts.get('_temp_cookiefile') if 'ydl_opts' in locals() else None
+                    if temp_cookie and os.path.exists(temp_cookie):
+                        os.remove(temp_cookie)
+                except Exception:
+                    pass
     
     def cleanup_temp_files(self):
         """清理临时文件"""
