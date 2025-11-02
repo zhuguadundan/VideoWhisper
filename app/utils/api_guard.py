@@ -42,19 +42,20 @@ def is_safe_base_url(url: str, *,
     except Exception:
         return False
 
-
-def validate_runtime_api_config(api_config: dict):
-    """校验运行时 API 配置中的 base_url。环境变量优先覆盖策略，保持向后兼容。"""
-    if not isinstance(api_config, dict):
-        return
-
-    # 默认策略来自 config.yaml.security，但运行时用环境变量覆盖
-    from app.config.settings import Config
+def get_security_policy():
+    """提取当前安全策略（环境变量优先，配置兜底）。
+    返回: (allowed_hosts, allow_http, allow_private, enforce_whitelist)
+    """
     try:
+        from app.config.settings import Config
         cfg = Config.load_config()
         sec = (cfg.get('security') or {})
         cfg_hosts = sec.get('allowed_api_hosts', []) or []
-        env_hosts = [h.strip().lower() for h in os.environ.get('ALLOWED_API_HOSTS', '').split(',') if h.strip()]
+        env_hosts = [
+            h.strip().lower()
+            for h in os.environ.get('ALLOWED_API_HOSTS', '').split(',')
+            if h.strip()
+        ]
         allowed_hosts = list({*(h.lower() for h in cfg_hosts if isinstance(h, str)), *env_hosts})
         allow_http = _env_bool('ALLOW_INSECURE_HTTP', bool(sec.get('allow_insecure_http', True)))
         allow_private = _env_bool('ALLOW_PRIVATE_ADDRESSES', bool(sec.get('allow_private_addresses', True)))
@@ -64,6 +65,16 @@ def validate_runtime_api_config(api_config: dict):
         allow_http = True
         allow_private = True
         enforce_whitelist = False
+    return allowed_hosts, allow_http, allow_private, enforce_whitelist
+
+
+def validate_runtime_api_config(api_config: dict):
+    """校验运行时 API 配置中的 base_url。环境变量优先覆盖策略，保持向后兼容。"""
+    if not isinstance(api_config, dict):
+        return
+
+    # 从集中策略获取
+    allowed_hosts, allow_http, allow_private, enforce_whitelist = get_security_policy()
 
     tp = (api_config.get('text_processor') or {})
     sf = (api_config.get('siliconflow') or {})
@@ -76,4 +87,3 @@ def validate_runtime_api_config(api_config: dict):
             enforce_whitelist=enforce_whitelist,
         ):
             raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
-

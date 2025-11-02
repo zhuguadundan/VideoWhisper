@@ -20,6 +20,11 @@ def _load_admin_token() -> str:
         return ''
 
 
+def _is_production() -> bool:
+    """判断是否为生产环境。"""
+    return os.environ.get('FLASK_ENV', '').strip().lower() == 'production'
+
+
 def admin_protected(f):
     """破坏性接口的最小鉴权装饰器。
     - 当未配置 ADMIN_TOKEN 时，不启用校验（兼容旧行为）。
@@ -30,10 +35,24 @@ def admin_protected(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         token = _load_admin_token()
+        # 生产环境强制需要令牌
+        if not token and _is_production():
+            return (
+                jsonify(
+                    {
+                        'success': False,
+                        'error': '权限错误',
+                        'message': '生产环境需要配置ADMIN_TOKEN并在请求头提供X-Admin-Token',
+                    }
+                ),
+                403,
+            )
+
+        # 开发环境未配置令牌：保持向后兼容直接放行
         if not token:
-            # 未配置直接放行，保持向后兼容
             return f(*args, **kwargs)
 
+        # 校验令牌
         presented = request.headers.get('X-Admin-Token', '').strip()
         if not presented or presented != token:
             return (
@@ -49,4 +68,3 @@ def admin_protected(f):
         return f(*args, **kwargs)
 
     return wrapper
-

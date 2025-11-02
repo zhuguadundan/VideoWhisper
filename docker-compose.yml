@@ -1,6 +1,7 @@
 services:
   videowhisper:
-    image: zhugua/videowhisper:latest  
+    build: .
+    image: videowhisper:local
     container_name: videowhisper-app
     ports:
       - "5000:5000"    # HTTP端口

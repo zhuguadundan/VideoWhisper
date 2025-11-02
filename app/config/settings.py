@@ -9,6 +9,13 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key'
+    # 生产环境强制要求非默认SECRET_KEY
+    if (os.environ.get('FLASK_ENV', '').strip().lower() == 'production') and (
+        not os.environ.get('SECRET_KEY') or os.environ.get('SECRET_KEY') == 'dev-secret-key'
+    ):
+        raise RuntimeError(
+            '生产环境必须设置安全的SECRET_KEY（通过环境变量SECRET_KEY）'
+        )
     
     # 配置文件缓存
     _config_cache = None

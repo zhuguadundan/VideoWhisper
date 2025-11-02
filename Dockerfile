@@ -1,16 +1,19 @@
 # 使用Python官方镜像作为基础镜像
 FROM python:3.9-slim
 
+# 版本参数（单一来源）
+ARG APP_VERSION=1.2.0
+
 # 设置版本标签
-LABEL version="1.2.0"
-LABEL description="VideoWhisper - AI视频转文本处理平台，版本1.2.0"
+LABEL version="${APP_VERSION}"
+LABEL description="VideoWhisper - AI视频转文本处理平台，版本 ${APP_VERSION}"
 LABEL maintainer="VideoWhisper Team"
 
 # 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
-    APP_VERSION=1.2.0
+    APP_VERSION=${APP_VERSION}
 
 # 设置工作目录
 WORKDIR /app

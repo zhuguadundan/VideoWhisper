@@ -154,8 +154,7 @@ Made with ❤️ by VideoWhisper Team
 
 - 文件接口已加路径校验，下载/删除仅限 `temp/` 与 `output/` 范围，防止路径遍历。
 - API 连接测试对自定义 Base URL 做基础校验以降低 SSRF 风险；已提供开关以兼容更多部署：
-- 允许 `http`（默认开启，方便升级用户无缝使用）：`security.allow_insecure_http: true` 或环境变量 `ALLOW_INSECURE_HTTP=true`。
-- 允许私网/本地地址（默认开启）：`security.allow_private_addresses: true` 或 `ALLOW_PRIVATE_ADDRESSES=true`。
+- 样例配置默认更严格：`security.allow_insecure_http: false`、`security.allow_private_addresses: false`；如需放宽请通过环境变量 `ALLOW_INSECURE_HTTP=true`、`ALLOW_PRIVATE_ADDRESSES=true`。
 - 日志统一输出到 `logs/app.log`，对 `api_key`、`token`、`authorization` 等敏感字段做脱敏记录。
 - 如需进一步限制可访问的 API 域名，可设置白名单（可选）：
    - 环境变量：`ALLOWED_API_HOSTS=api.siliconflow.cn,api.openai.com`
@@ -164,10 +163,15 @@ Made with ❤️ by VideoWhisper Team
 
 ### 兼容模式与生产建议
 
-- 为兼容已有用户与自建反代，连接测试接口默认允许 `http` 与私网/本地地址（即 `security.allow_insecure_http: true` 与 `security.allow_private_addresses: true`）。
-- 生产环境建议改为“严格模式”以降低 SSRF 风险：
+- 为兼容旧环境，可通过环境变量放宽策略（`ALLOW_INSECURE_HTTP=true`、`ALLOW_PRIVATE_ADDRESSES=true`）。
+- 生产环境建议“严格模式”：
   - 设置 `security.allow_insecure_http: false`、`security.allow_private_addresses: false`；
-  - 并启用白名单：`security.enforce_api_hosts_whitelist: true`，配合 `security.allowed_api_hosts`（或环境变量 `ALLOWED_API_HOSTS`）。
+  - 可启用白名单：`security.enforce_api_hosts_whitelist: true` 配合 `security.allowed_api_hosts`（或 `ALLOWED_API_HOSTS`）。
+
+### HTTPS 部署建议
+
+- 开发/本地：内置自签证书便于调试（端口 5443）。
+- 生产：推荐由反向代理（Nginx、Caddy、Traefik）终止 TLS，再代理到应用的 HTTP/HTTPS 端口；应用内置证书仅用于本地开发。
 - 说明：上述限制默认同时作用于“连接测试接口”和“实际处理接口”，行为由同一组环境变量/配置开关控制（可按需调整以兼容旧部署）。
 
 ## 维护者说明（近期技术改动）

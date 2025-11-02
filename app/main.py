@@ -22,94 +22,14 @@ import ipaddress
 from urllib.parse import urlparse
 from app.config.settings import Config
 from app.utils.api_guard import (
-    is_safe_base_url as _is_safe_base_url,
-    validate_runtime_api_config as _validate_runtime_api_config,
+    is_safe_base_url,
+    validate_runtime_api_config,
+    get_security_policy,
 )
-from app.utils.api_guard import (
-    is_safe_base_url as __guard_is_safe_base_url,
-    validate_runtime_api_config as __guard_validate_runtime_api_config,
-)
+from app.utils.path_safety import safe_join
+from app.services.file_manager import FileManager
 
-# 简单的 base_url 安全校验，防止 SSRF
-# 白名单来源与安全开关来自 config.yaml 与环境变量（环境变量优先）
-def _env_bool(name: str, default: bool) -> bool:
-    val = os.environ.get(name)
-    if val is None:
-        return default
-    return str(val).strip().lower() in ("1", "true", "yes", "on")
-
-try:
-    _cfg = Config.load_config()
-    _sec = _cfg.get('security', {}) or {}
-    _cfg_hosts = _sec.get('allowed_api_hosts', []) or []
-    _allow_http_default = bool(_sec.get('allow_insecure_http', True))
-    _allow_private_default = bool(_sec.get('allow_private_addresses', True))
-    _enforce_whitelist_default = bool(_sec.get('enforce_api_hosts_whitelist', False))
-except Exception:
-    _cfg_hosts = []
-    _allow_http_default = True
-    _allow_private_default = True
-    _enforce_whitelist_default = False
-
-_env_hosts = [h.strip().lower() for h in os.environ.get('ALLOWED_API_HOSTS', '').split(',') if h.strip()]
-ALLOWED_API_HOSTS = list({*(h.lower() for h in _cfg_hosts if isinstance(h, str)), *_env_hosts})
-
-ALLOW_INSECURE_HTTP = _env_bool('ALLOW_INSECURE_HTTP', _allow_http_default)
-ALLOW_PRIVATE_ADDRESSES = _env_bool('ALLOW_PRIVATE_ADDRESSES', _allow_private_default)
-ENFORCE_API_HOSTS_WHITELIST = _env_bool('ENFORCE_API_HOSTS_WHITELIST', _enforce_whitelist_default)
-
-def _is_safe_base_url(url: str) -> bool:
-    try:
-        if not url:
-            return True  # 空值表示使用默认地址
-        p = urlparse(url)
-        scheme = (p.scheme or '').lower()
-        if scheme not in ('https', 'http'):
-            return False
-        if scheme == 'http' and not ALLOW_INSECURE_HTTP:
-            return False
-        host = p.hostname
-        if not host:
-            return False
-        # 禁止本地/环回/私网/多播等地址
-        try:
-            ip = ipaddress.ip_address(host)
-            if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast) and not ALLOW_PRIVATE_ADDRESSES:
-                return False
-        except ValueError:
-            # 不是纯 IP，当作域名处理
-            if host.lower() in {'localhost'} and not ALLOW_PRIVATE_ADDRESSES:
-                return False
-        # 可选：域名白名单（环境变量/配置）
-        if ENFORCE_API_HOSTS_WHITELIST and ALLOWED_API_HOSTS:
-            h = host.lower()
-            if not any(h == w or h.endswith('.' + w) for w in ALLOWED_API_HOSTS):
-                return False
-        return True
-    except Exception:
-        return False
-
-def _validate_runtime_api_config(api_config: dict):
-    """校验前端透传的运行时 API 配置中的 base_url，沿用同一套安全策略。
-
-    说明：为保持向后兼容，是否允许 http/私网/白名单，继续受
-    ALLOW_INSECURE_HTTP/ALLOW_PRIVATE_ADDRESSES/ENFORCE_API_HOSTS_WHITELIST 等开关控制。
-    """
-    try:
-        if not isinstance(api_config, dict):
-            return
-        tp = (api_config.get('text_processor') or {})
-        sf = (api_config.get('siliconflow') or {})
-        for base_url in (tp.get('base_url'), sf.get('base_url')):
-            if base_url and not _is_safe_base_url(str(base_url)):
-                raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
-    except Exception:
-        # 统一由路由装饰器处理异常响应
-        raise
-
-# 委托至统一 API 守卫（覆盖本地定义，保持调用兼容）
-_is_safe_base_url = __guard_is_safe_base_url
-_validate_runtime_api_config = __guard_validate_runtime_api_config
+# 统一由 app.utils.api_guard 提供策略与校验
 
 try:
     import openai
@@ -142,7 +62,7 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
-        'version': 'v0.16.0',
+        'version': f"v{os.environ.get('APP_VERSION', '0.0.0')}",
         'features': [
             'audio_only_download',
             'automatic_temp_cleanup',
@@ -179,6 +99,16 @@ def get_video_info():
         raise ValueError("请提供视频URL")
         
     try:
+        # SSRF 防护：处理前先校验视频URL
+        allowed_hosts, allow_http, allow_private, enforce_whitelist = get_security_policy()
+        if not is_safe_base_url(
+            video_url,
+            allowed_hosts=allowed_hosts,
+            allow_http=allow_http,
+            allow_private=allow_private,
+            enforce_whitelist=enforce_whitelist,
+        ): 
+            raise ValueError('不安全的视频URL，必须为HTTPS且非内网/本地地址')
         info = video_downloader.get_video_info(video_url)
         return safe_json_response(
             success=True,
@@ -360,7 +290,7 @@ def process_upload():
     # 校验运行时配置中的 base_url，沿用与测试接口一致的安全策略
     try:
         if api_config:
-            _validate_runtime_api_config(api_config)
+            validate_runtime_api_config(api_config)
     except Exception as e:
         raise ValueError(str(e))
     
@@ -454,11 +384,22 @@ def process_video():
     # 校验运行时配置中的 base_url，沿用与测试接口一致的安全策略
     try:
         if api_config:
-            _validate_runtime_api_config(api_config)
+            validate_runtime_api_config(api_config)
     except Exception as e:
         raise ValueError(str(e))
     youtube_cookies = data.get('youtube_cookies', '')  # 获取 YouTube cookies
     
+    # SSRF 防护：处理前先校验视频URL
+    allowed_hosts, allow_http, allow_private, enforce_whitelist = get_security_policy()
+    if not is_safe_base_url(
+        video_url,
+        allowed_hosts=allowed_hosts,
+        allow_http=allow_http,
+        allow_private=allow_private,
+        enforce_whitelist=enforce_whitelist,
+    ):
+        raise ValueError('不安全的视频URL，必须为HTTPS且非内网/本地地址')
+
     # 创建任务（支持 cookies 参数）
     task_id = video_processor.create_task(video_url, youtube_cookies)
     logging.info(f"创建新任务: {task_id}, URL: {video_url} (仅音频模式)")
@@ -630,38 +571,10 @@ def download_file(task_id, file_type):
                 'message': '不支持的文件类型'
             })
         
-        # 简化文件名格式
-        def get_simple_filename(title: str, file_type: str, extension: str) -> str:
-            import re
-            
-            # 简化标题处理，避免过度复杂化
-            if title:
-                # 移除文件扩展名（如果标题包含）
-                clean_title = re.sub(r'\.(mp4|avi|mov|mkv|webm|flv|mp3|wav|aac|m4a|ogg)$', '', title, flags=re.IGNORECASE)
-                # 移除特殊字符，保留中文、英文、数字
-                clean_title = re.sub(r'[^\u4e00-\u9fa5\w\s]', '', clean_title)
-                clean_title = clean_title.strip()
-                
-                # 限制长度
-                if len(clean_title) > 20:
-                    clean_title = clean_title[:20]
-                
-                short_title = clean_title if clean_title else "视频"
-            else:
-                short_title = "视频"
-            
-            # 根据文件类型生成简短名称
-            if file_type == 'transcript':
-                return f"{short_title}_逐字稿.{extension}"
-            elif file_type == 'summary':
-                return f"{short_title}_总结报告.{extension}"
-            elif file_type == 'data':
-                return f"{short_title}_完整数据.{extension}"
-            else:
-                return f"{short_title}_{file_type}.{extension}"
+        from app.utils.download_name import build_filename
         
         extension = os.path.splitext(file_path)[1][1:]  # 获取实际文件的扩展名，去掉点号
-        download_filename = get_simple_filename(
+        download_filename = build_filename(
             task.video_info.title if task.video_info else '', 
             file_type, 
             extension
@@ -821,15 +734,11 @@ def download_managed_file(file_id):
         task_id = parts[0]
         file_name = '/'.join(parts[1:])
         
-        # 构造文件路径
-        # 安全构造路径，防止路径遍历
+        # 构造文件路径（统一路径安全校验）
         base_dir = video_processor.temp_dir if task_id == 'temp' else os.path.join(video_processor.output_dir, task_id)
-        base_abs = os.path.abspath(base_dir)
-        candidate = os.path.abspath(os.path.join(base_abs, file_name))
         try:
-            if os.path.commonpath([base_abs, candidate]) != base_abs:
-                return jsonify({'success': False, 'message': '非法的文件路径'}), 400
-        except Exception:
+            candidate = safe_join(base_dir, file_name)
+        except ValueError:
             return jsonify({'success': False, 'message': '非法的文件路径'}), 400
         
         if not os.path.exists(candidate):
@@ -872,21 +781,14 @@ def delete_files():
                 task_id = parts[0]
                 file_name = '/'.join(parts[1:])
                 
-                # 构造文件路径
-                # 构造并校验安全路径，防止路径遍历
+                # 统一路径安全校验
                 base_dir = video_processor.temp_dir if task_id == 'temp' else os.path.join(video_processor.output_dir, task_id)
-                base_abs = os.path.abspath(base_dir)
-                candidate = os.path.abspath(os.path.join(base_abs, file_name))
                 try:
-                    if os.path.commonpath([base_abs, candidate]) != base_abs:
-                        errors.append(f'{file_id}: 非法的文件路径')
-                        logging.warning(f"Illegal path detected: {candidate}")
-                        continue
-                except Exception as _e:
+                    file_path = safe_join(base_dir, file_name)
+                except ValueError as _e:
                     errors.append(f'{file_id}: 非法的文件路径')
                     logging.warning(f"Illegal path exception: {_e}")
                     continue
-                file_path = candidate
                 
                 logging.info(f"Attempting to delete file: {file_path}")
                 
@@ -942,35 +844,19 @@ def delete_task_files(task_id):
                     'message': '临时目录不存在'
                 })
         else:
-            # 删除指定任务目录（安全校验）
-            base_abs = os.path.abspath(video_processor.output_dir)
-            task_dir = os.path.abspath(os.path.join(base_abs, task_id))
-            try:
-                if os.path.commonpath([base_abs, task_dir]) != base_abs:
-                    return jsonify({'success': False, 'message': '非法的任务ID'}), 400
-            except Exception:
-                return jsonify({'success': False, 'message': '非法的任务ID'}), 400
-            if os.path.exists(task_dir):
-                shutil.rmtree(task_dir)
-                
-                # 从内存中移除任务
+            # 使用 FileManager 的带护栏删除
+            fm = FileManager()
+            ok = fm.delete_output_task_dir(task_id)
+            if ok:
+                # 同步内存任务
                 if task_id in video_processor.tasks:
                     del video_processor.tasks[task_id]
-                    # 删除任务后立即持久化，确保状态一致
                     try:
                         video_processor.save_tasks_to_disk()
                     except Exception:
                         pass
-                
-                return jsonify({
-                    'success': True,
-                    'message': f'任务 {task_id} 的所有文件已删除'
-                })
-            else:
-                return jsonify({
-                    'success': False,
-                    'message': '任务目录不存在'
-                })
+                return jsonify({'success': True, 'message': f'任务 {task_id} 的所有文件已删除'})
+            return jsonify({'success': False, 'message': '任务目录不存在'})
                 
     except Exception as e:
         return jsonify({
@@ -1048,7 +934,7 @@ def test_siliconflow_connection(config):
         raise ValueError('API Key未提供')
     
     base_url = config.get('base_url') or 'https://api.siliconflow.cn/v1'
-    if not _is_safe_base_url(base_url):
+    if not is_safe_base_url(base_url):
         raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
     ok, msg = _pt_test_siliconflow(config['api_key'], base_url, config.get('model'))
     if ok:
@@ -1077,7 +963,7 @@ def test_siliconflow_text_processor(config):
         raise ValueError('API Key未提供')
     
     base_url = config.get('base_url') or 'https://api.siliconflow.cn/v1'
-    if not _is_safe_base_url(base_url):
+    if not is_safe_base_url(base_url):
         raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
     ok, msg = _pt_test_siliconflow(config['api_key'], base_url, config.get('model', 'Qwen/Qwen3-Coder-30B-A3B-Instruct'))
     if ok:
@@ -1098,7 +984,7 @@ def test_openai_connection(config, is_text_processor=False):
             raise ValueError('自定义提供商需要提供Base URL')
     
     try:
-        if config.get('base_url') and not _is_safe_base_url(config.get('base_url')):
+        if config.get('base_url') and not is_safe_base_url(config.get('base_url')):
             raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
         ok, _ = _pt_test_openai(config.get('api_key'), config.get('base_url'), config.get('model'))
         if not ok:
@@ -1135,7 +1021,7 @@ def test_gemini_connection(config, is_text_processor=False):
     
     if config.get('base_url'):
         # 基本校验 base_url
-        if not _is_safe_base_url(config.get('base_url')):
+        if not is_safe_base_url(config.get('base_url')):
             raise ValueError('不安全的Base URL，必须为HTTPS且非内网/本地地址')
     
     ok, _ = _pt_test_gemini(config.get('api_key'), config.get('base_url'), config.get('model', 'gemini-pro'))

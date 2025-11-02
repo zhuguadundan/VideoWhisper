@@ -307,9 +307,21 @@ class VideoDownloader:
                     output_path = os.path.join(task_temp_dir, '%(title)s.%(ext)s')
                 logger.debug(f"初始输出路径模板: {output_path}")
                     
+                # 解析 format 规格，允许 dict 的平台化配置，保证传入 yt-dlp 为字符串
+                fmt_spec = (self.config.get('downloader', {}).get('general', {}).get('audio_format', 'bestaudio/best'))
+                if isinstance(fmt_spec, dict):
+                    if 'bilibili.com' in url:
+                        fmt_spec = fmt_spec.get('bilibili') or 'bestaudio/best'
+                    elif 'youtube.com' in url or 'youtu.be' in url:
+                        fmt_spec = fmt_spec.get('youtube') or 'bestaudio/best'
+                    else:
+                        fmt_spec = next((v for v in fmt_spec.values() if isinstance(v, str)), 'bestaudio/best')
+                else:
+                    fmt_spec = str(fmt_spec)
+
                 ydl_opts.update({
                     'outtmpl': output_path,
-                    'format': self.config.get('downloader', {}).get('general', {}).get('audio_format', 'bestaudio/best'),
+                    'format': fmt_spec,
                     'postprocessors': [{
                         'key': 'FFmpegExtractAudio',
                         'preferredcodec': 'wav',
@@ -350,6 +362,36 @@ class VideoDownloader:
                         logger.error(f"错误类型: {type(download_error)}")
                         raise download_error
 
+                # 优先从 yt-dlp 结果中获取最终文件路径（最稳健）
+                audio_filename = None
+                try:
+                    if isinstance(info_download, dict):
+                        fp = info_download.get('filepath')
+                        if isinstance(fp, str) and os.path.exists(fp):
+                            audio_filename = fp
+                        else:
+                            reqs = info_download.get('requested_downloads')
+                            if isinstance(reqs, list):
+                                for req in reqs:
+                                    fp2 = req.get('filepath') if isinstance(req, dict) else None
+                                    if isinstance(fp2, str) and os.path.exists(fp2):
+                                        audio_filename = fp2
+                                        break
+                except Exception:
+                    pass
+
+                if audio_filename and os.path.exists(audio_filename):
+                    logger.debug(f"最终音频文件路径: {audio_filename}")
+                    try:
+                        logger.debug(f"注册文件到管理器: {audio_filename}")
+                        self.file_manager.register_task(task_id, [audio_filename], register_dir=True)
+                        logger.debug("文件注册成功")
+                    except Exception as register_error:
+                        logger.error(f"文件注册失败: {register_error}")
+                        # 注册失败不影响主流程
+                    logger.info(f"音频下载成功 (策略{i+1}): {audio_filename}")
+                    return audio_filename
+
                 # 推断最终生成的 wav 文件路径
                 # 1) yt-dlp 音频提取 postprocessor 通常把扩展名改为 .wav
                 # 2) 当 outtmpl 为 .../<name>.%(ext)s 时，最终为 .../<name>.wav
@@ -357,8 +399,12 @@ class VideoDownloader:
                 final_path = outtmpl
                 final_path = final_path.replace('%(ext)s', 'wav') if '%(ext)s' in final_path else final_path
                 # 若 outtmpl 没有 %(ext)s，但不是 .wav，尝试替换结尾扩展名
-                if not final_path.lower().endswith('.wav'):
-                    root, _ = os.path.splitext(final_path)
+                try:
+                    _is_wav = isinstance(final_path, str) and final_path.lower().endswith('.wav')
+                except Exception:
+                    _is_wav = False
+                if not _is_wav:
+                    root, _ = os.path.splitext(str(final_path))
                     final_path = f"{root}.wav"
 
                 # 如果文件不存在，做一次目录扫描兜底（只要 .wav 且包含 safe_title）

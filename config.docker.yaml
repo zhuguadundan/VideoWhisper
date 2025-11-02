@@ -51,6 +51,13 @@ downloader:
     audio_format: "bestaudio/best"
     quiet: true                       # 容器环境建议开启静默模式
 
+# 安全配置（Docker样例：默认更严格，可用环境变量放宽以兼容旧部署）
+security:
+  allowed_api_hosts: []
+  allow_insecure_http: false
+  allow_private_addresses: false
+  enforce_api_hosts_whitelist: false
+
 # Docker环境说明
 # 存储结构：
 # - /app/temp: 临时文件，自动清理保留最近3次任务

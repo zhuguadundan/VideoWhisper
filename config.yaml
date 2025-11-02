@@ -39,10 +39,10 @@ security:
   # 连接测试接口允许访问的 API 域名白名单（可选）。
   # 留空表示不限制（仍强制 https 且禁止本地/内网地址）。
   allowed_api_hosts: []
-  # 是否允许 http（默认允许以保障升级用户无缝使用）
-  allow_insecure_http: true
-  # 是否允许私网/本地地址（默认允许以保障升级用户无缝使用）
-  allow_private_addresses: true
+  # 是否允许 http（样例默认关闭；可用环境变量 ALLOW_INSECURE_HTTP=true 放开以兼容旧环境）
+  allow_insecure_http: false
+  # 是否允许私网/本地地址（样例默认关闭；可用 ALLOW_PRIVATE_ADDRESSES=true 放开）
+  allow_private_addresses: false
   # 是否强制启用域名白名单（默认不强制；若为 true 且白名单不为空，则必须匹配）
   enforce_api_hosts_whitelist: false
 
