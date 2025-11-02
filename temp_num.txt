@@ -1,0 +1,220 @@
+   1: from flask import Flask, jsonify, request, g
+   2: from app.config.settings import Config
+   3: from app.utils.certificate_manager import CertificateManager, create_ssl_context
+   4: import logging
+   5: from logging.handlers import RotatingFileHandler
+   6: import traceback
+   7: import os
+   8: import uuid
+   9: 
+  10: def create_app():
+  11:     app = Flask(__name__, 
+  12:                 template_folder='../web/templates',
+  13:                 static_folder='../web/static')
+  14:     
+  15:     app.config.from_object(Config)
+  16:     
+  17:     # 获取HTTPS配置
+  18:     https_config = Config.get_https_config()
+  19:     
+  20:     # 初始化证书管理器
+  21:     cert_manager = CertificateManager(https_config)
+  22:     
+  23:     # 自动生成证书（如果启用且不存在）
+  24:     if https_config['enabled'] and https_config['auto_generate']:
+  25:         logging.info("HTTPS已启用，检查SSL证书...")
+  26:         if cert_manager.ensure_certificates():
+  27:             logging.info("SSL证书已准备就�?)
+  28:         else:
+  29:             logging.error("SSL证书生成失败，将仅使用HTTP")
+  30:     
+  31:     # 配置HTTPS上下文（如果证书存在�?
+  32:     ssl_context = None
+  33:     if https_config['enabled'] and cert_manager.certificates_exist():
+  34:         try:
+  35:             ssl_context = create_ssl_context(https_config['cert_file'], https_config['key_file'])
+  36:             if ssl_context:
+  37:                 logging.info(f"HTTPS已启用，监听 {https_config['host']}:{https_config['port']}")
+  38:                 # 将SSL上下文存储到app对象中，供run.py使用
+  39:                 app.ssl_context = ssl_context
+  40:                 app.https_config = https_config
+  41:             else:
+  42:                 logging.error("SSL上下文创建失败，将仅使用HTTP")
+  43:         except Exception as e:
+  44:             logging.error(f"SSL上下文创建失�? {e}")
+  45:             https_config['enabled'] = False
+  46:     else:
+  47:         app.ssl_context = None
+  48:         app.https_config = https_config
+  49:     
+  50:     # 配置日志目录
+  51:     os.makedirs('logs', exist_ok=True)
+  52: 
+  53:     # 配置日志（滚动文�?+ 控制台）
+  54:     root_logger = logging.getLogger()
+  55:     root_logger.setLevel(logging.INFO)
+  56:     fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+  57:     # 滚动文件
+  58:     file_handler = RotatingFileHandler('logs/app.log', maxBytes=5*1024*1024, backupCount=3, encoding='utf-8')
+  59:     file_handler.setFormatter(fmt)
+  60:     # 控制�?
+  61:     stream_handler = logging.StreamHandler()
+  62:     stream_handler.setFormatter(fmt)
+  63:     # 重置并添�?
+  64:     root_logger.handlers = [file_handler, stream_handler]
+  65: 
+  66:     # 全局上传大小限制（优先环境变�?MAX_UPLOAD_SIZE_MB �?UPLOAD_MAX_SIZE_MB，其次配置文�?upload.max_upload_size；默�?00MB�?
+  67:     try:
+  68:         app_cfg = Config.load_config()
+  69:     except Exception:
+  70:         app_cfg = {}
+  71:     env_max_mb = os.environ.get('MAX_UPLOAD_SIZE_MB') or os.environ.get('UPLOAD_MAX_SIZE_MB')
+  72:     try:
+  73:         max_upload_mb = int(env_max_mb) if env_max_mb else int((app_cfg.get('upload') or {}).get('max_upload_size', 500))
+  74:     except Exception:
+  75:         max_upload_mb = 500
+  76:     app.config['MAX_CONTENT_LENGTH'] = max_upload_mb * 1024 * 1024
+  77:     
+  78:     # 启动时一次性安全提示（保持默认向后兼容，不收紧�?
+  79:     try:
+  80:         cfg = Config.load_config()
+  81:         sec = (cfg.get('security') or {})
+  82:         def _env_bool(name: str, default: bool) -> bool:
+  83:             val = os.environ.get(name)
+  84:             if val is None:
+  85:                 return bool(default)
+  86:             return str(val).strip().lower() in ("1", "true", "yes", "on")
+  87:         allow_insecure = _env_bool('ALLOW_INSECURE_HTTP', sec.get('allow_insecure_http', True))
+  88:         allow_private = _env_bool('ALLOW_PRIVATE_ADDRESSES', sec.get('allow_private_addresses', True))
+  89:         if allow_insecure:
+  90:             logging.warning("安全提示：当前允�?http 连接测试（开发兼容）。生产建议设�?ALLOW_INSECURE_HTTP=false 或在 config.yaml.security 中关闭�?)
+  91:         if allow_private:
+  92:             logging.warning("安全提示：当前允许访问私�?本地地址进行连接测试（开发兼容）。生产建议设�?ALLOW_PRIVATE_ADDRESSES=false 或在 config.yaml.security 中关闭�?)
+  93:     except Exception:
+  94:         pass
+  95:     
+  96:     def is_api_request():
+  97:         """判断是否是API请求"""
+  98:         return request.path.startswith('/api/')
+  99:     
+ 100:     # 覆盖默认错误处理，修正中文提示乱码（保留单套处理器，避免重复定义�?
+ 101:     @app.errorhandler(500)
+ 102:     def _handle_internal_error_clean(e):
+ 103:         logging.error(f"Internal Server Error: {str(e)}")
+ 104:         logging.error(traceback.format_exc())
+ 105:         if is_api_request():
+ 106:             return jsonify({
+ 107:                 'success': False,
+ 108:                 'error': '服务器内部错�?,
+ 109:                 'message': '系统出现内部错误，请稍后重试。如果问题持续存在，请联系管理员�?
+ 110:             }), 500
+ 111:         return f"<h1>服务器错�?/h1><p>系统出现内部错误，请稍后重试</p>", 500
+ 112: 
+ 113:     @app.errorhandler(404)
+ 114:     def _handle_not_found_clean(e):
+ 115:         if is_api_request():
+ 116:             return jsonify({
+ 117:                 'success': False,
+ 118:                 'error': '资源不存�?,
+ 119:                 'message': '请求的API端点不存�?
+ 120:             }), 404
+ 121:         return f"<h1>页面未找�?/h1><p>请求的页面不存在</p>", 404
+ 122: 
+ 123:     @app.errorhandler(405)
+ 124:     def _handle_method_not_allowed_clean(e):
+ 125:         if is_api_request():
+ 126:             return jsonify({
+ 127:                 'success': False,
+ 128:                 'error': '请求方法不允�?,
+ 129:                 'message': '请求方法不被允许，请检查HTTP方法'
+ 130:             }), 405
+ 131:         return f"<h1>请求方法不允�?/h1><p>请求方法不被允许</p>", 405
+ 132: 
+ 133:     @app.errorhandler(400)
+ 134:     def _handle_bad_request_clean(e):
+ 135:         if is_api_request():
+ 136:             return jsonify({
+ 137:                 'success': False,
+ 138:                 'error': '请求格式错误',
+ 139:                 'message': '请求数据格式不正确，请检查请求参�?
+ 140:             }), 400
+ 141:         return f"<h1>请求格式错误</h1><p>请求数据格式不正�?/p>", 400
+ 142: 
+ 143:     @app.errorhandler(Exception)
+ 144:     def handle_exception(e):
+ 145:         # 记录详细的异常信�?
+ 146:         logging.exception(f"Unhandled exception: {str(e)}")
+ 147:         logging.error(f"Request URL: {request.url}")
+ 148:         logging.error(f"Request Method: {request.method}")
+ 149:         try:
+ 150:             if request.is_json:
+ 151:                 payload = request.get_json(silent=True) or {}
+ 152:                 if isinstance(payload, dict):
+ 153:                     masked = {}
+ 154:                     for k, v in payload.items():
+ 155:                         if any(s in k.lower() for s in ['api_key', 'apikey', 'authorization', 'token', 'secret']):
+ 156:                             masked[k] = '***'
+ 157:                         else:
+ 158:                             masked[k] = v
+ 159:                     logging.error(f"Request JSON (masked): {masked}")
+ 160:             else:
+ 161:                 body = request.get_data(cache=False) or b''
+ 162:                 logging.error(f"Request Body length: {len(body)}")
+ 163:         except Exception:
+ 164:             pass
+ 165:         logging.error(traceback.format_exc())
+ 166:         
+ 167:         # 处理不同类型的异常，提供更友好的错误信息
+ 168:         error_message = str(e)
+ 169:         if 'Connection' in str(type(e).__name__):
+ 170:             error_message = 'API连接失败，请检查网络连接或API配置'
+ 171:         elif 'timeout' in str(e).lower():
+ 172:             error_message = '请求超时，请稍后重试'
+ 173:         elif 'api_key' in str(e).lower() or 'unauthorized' in str(e).lower():
+ 174:             error_message = 'API密钥无效，请检查配�?
+ 175:         elif 'file' in str(e).lower() and 'not found' in str(e).lower():
+ 176:             error_message = '所需文件不存在，请检查文件路�?
+ 177:         
+ 178:         if is_api_request():
+ 179:             return jsonify({
+ 180:                 'success': False,
+ 181:                 'error': '系统异常',
+ 182:                 'message': error_message if len(error_message) <= 200 else f'{error_message[:200]}...',
+ 183:                 'error_type': type(e).__name__
+ 184:             }), 500
+ 185:         else:
+ 186:             return f"<h1>系统异常</h1><p>{error_message}</p>", 500
+ 187:     
+ 188:     # request-id 注入与回传（P2-2�?
+ 189:     @app.before_request
+ 190:     def _inject_request_id():
+ 191:         try:
+ 192:             g.request_id = request.headers.get('X-Request-Id') or uuid.uuid4().hex[:12]
+ 193:         except Exception:
+ 194:             g.request_id = uuid.uuid4().hex[:12]
+ 195: 
+ 196:     @app.after_request
+ 197:     def _attach_request_id_header(resp):
+ 198:         try:
+ 199:             rid = getattr(g, 'request_id', None)
+ 200:             if rid:
+ 201:                 resp.headers['X-Request-Id'] = rid
+ 202:         except Exception:
+ 203:             pass
+ 204:         return resp
+ 205: 
+ 206:     @app.errorhandler(413)
+ 207:     def _handle_request_entity_too_large_clean(e):
+ 208:         if is_api_request():
+ 209:             return jsonify({
+ 210:                 'success': False,
+ 211:                 'error': '文件过大',
+ 212:                 'message': f'文件大小超过限制（最�?{max_upload_mb}MB�?
+ 213:             }), 413
+ 214:         return f"<h1>文件过大</h1><p>文件大小超过限制（最�?{max_upload_mb}MB）�?/p>", 413
+ 215: 
+ 216:     # 注册蓝图
+ 217:     from app.main import main_bp
+ 218:     app.register_blueprint(main_bp)
+ 219:     
+ 220:     return app

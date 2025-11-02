@@ -90,7 +90,34 @@ fi
 echo -e "${GREEN}Starting VideoWhisper Application...${NC}"
 echo -e "${BLUE}======================================${NC}"
 
-# 使用 gunicorn 启动（生产）
+# 若启用HTTPS，则先确保证书存在，然后以第二个 gunicorn 实例在后台监听 5443（TLS）
+if [ "$HTTPS_ENABLED" = "true" ]; then
+  echo -e "${YELLOW}Ensuring SSL certificate exists before HTTPS start...${NC}"
+  python - <<'PY'
+from app.config.settings import Config
+from app.utils.certificate_manager import CertificateManager
+cfg = Config.get_https_config()
+mgr = CertificateManager(cfg)
+ok = mgr.ensure_certificates()
+print('cert_ready:', ok)
+PY
+
+  echo -e "${GREEN}Starting HTTPS (gunicorn TLS) on :${HTTPS_PORT}${NC}"
+  gunicorn \
+    -w 1 \
+    -k gthread \
+    --threads 4 \
+    -t 120 \
+    -b 0.0.0.0:${HTTPS_PORT} \
+    --certfile /app/config/cert.pem \
+    --keyfile /app/config/key.pem \
+    --access-logfile - \
+    --error-logfile - \
+    "app:create_app()" &
+fi
+
+# 启动 HTTP（前台）
+echo -e "${GREEN}Starting HTTP on :5000${NC}"
 exec gunicorn \
   -w 1 \
   -k gthread \

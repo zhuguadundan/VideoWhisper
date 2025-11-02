@@ -180,6 +180,13 @@ Made with ❤️ by VideoWhisper Team
   - 设置 `security.allow_insecure_http: false`、`security.allow_private_addresses: false`；
   - 可启用白名单：`security.enforce_api_hosts_whitelist: true` 配合 `security.allowed_api_hosts`（或 `ALLOWED_API_HOSTS`）。
 
+### 管理员接口鉴权（可选）
+
+- 未配置时：为兼容旧部署，破坏性接口默认放行并打印一次安全警告（生产环境）。
+- 显式配置令牌：设置环境变量 `ADMIN_TOKEN`（或在 `config.yaml` -> `security.admin_token`），前端需在请求头附带 `X-Admin-Token` 才可操作。
+- 强制开启校验（可选）：`ENFORCE_ADMIN_TOKEN=true`（或 `security.enforce_admin_token: true`）。若强制开启但未配置令牌，请求将返回 403。
+- 前端兼容：应用会尝试从本地 `localStorage[videowhisper_admin_token]` 或配置注入的 `security.admin_token` 自动附带头。
+
 ### HTTPS 部署建议
 
 - 开发/本地：内置自签证书便于调试（端口 5443）。
