@@ -21,6 +21,12 @@ https://cloud.siliconflow.cn/i/uy4d8V8Y
 
 ## 📈 版本更新
 
+### v3.7.0 (2025-09-10) - 全新UI 🚀
+- ✅ 更换全新的更现代的UI界面
+- ✅ 增加历史任务删除功能
+- ✅ 新增环境变量MAX_UPLOAD_SIZE_MB，用于控制本地文件上传最大体积默认500MB
+- ✅ 更新上游yt-dlp至最新版本修复YouTube视频转录
+
 ### v3.6.0 (2025-09-10) - 支持中英对照翻译 🚀
 - ✅ 新增按钮一键翻译成中英文句对句翻译版
 - ✅ review代码修复大量微小错误及安全性提升，防止文件路径遍历，日志脱敏
@@ -180,10 +186,4 @@ Made with ❤️ by VideoWhisper Team
 - 生产：推荐由反向代理（Nginx、Caddy、Traefik）终止 TLS，再代理到应用的 HTTP/HTTPS 端口；应用内置证书仅用于本地开发。
 - 说明：上述限制默认同时作用于“连接测试接口”和“实际处理接口”，行为由同一组环境变量/配置开关控制（可按需调整以兼容旧部署）。
 
-## 维护者说明（近期技术改动）
 
-- 证书 SAN 修复：自签证书的 `SubjectAlternativeName` 现在正确包含 IP（使用 `ipaddress`），构造失败将记录告警并回退到仅域名 SAN（行为不变）。
-- 文件名清洗统一：所有文件名规范化统一由 `app/utils/helpers.py:sanitize_filename` 提供，保证 Windows 规则一致（替换非法字符、去除首尾空格与点、长度限制、空名回退）。
-- 连接测试收敛：不同提供商（SiliconFlow/OpenAI 兼容/Gemini）的连接测试已收敛到 `app/utils/provider_tester.py`，路由层仅做参数校验与安全校验。
-- 启动安全提示：保持默认兼容（允许 http/私网）不变，但启动时在日志里输出一次“生产建议关闭”的提示，便于逐步收紧。
-- 日志统一：服务层（downloader/audio_extractor/speech_to_text/file_uploader/file_manager）已统一使用 `logging.getLogger(__name__)`，去除 `print` 重定向；后续可按需将 `video_processor` 也全部替换为直接 `logger` 调用（当前其内部 `print` 已路由到日志，行为一致）。
