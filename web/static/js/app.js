@@ -147,7 +147,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     defer(() => {
         initializeFileUpload();
-        loadAvailableProviders();
+        loadAvailableProvidersServerFirst();
     });
 
     // 任务列表加载放到稍后，避免阻塞首次交互
@@ -1341,6 +1341,51 @@ function showTranscriptPreview(preview, fullTranscript) {
     // 存储完整逐字稿
     previewDiv.dataset.fullTranscript = fullTranscript || '';
     previewDiv.style.display = 'block';
+}
+
+// 新增：优先从后端探测提供商，失败时回退到本地存储
+async function loadAvailableProvidersServerFirst() {
+    const select = document.getElementById('llmProvider');
+    if (!select) return;
+    select.innerHTML = '';
+
+    const providerNames = {
+        'siliconflow': '硅基流动',
+        'openai': 'OpenAI GPT-4',
+        'gemini': 'Google Gemini',
+        'custom': '自定义(兼容OpenAI)'
+    };
+
+    // 1) 后端探测（依据服务端config.yaml）
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        const resp = await fetch('/api/providers', { signal: controller.signal, headers: { 'Accept': 'application/json' } });
+        clearTimeout(timeoutId);
+        if (resp.ok) {
+            const payload = await resp.json();
+            const providers = (payload && payload.data && Array.isArray(payload.data.providers)) ? payload.data.providers : [];
+            if (payload && payload.success && providers.length > 0) {
+                const def = (payload.data && payload.data.default) ? payload.data.default : providers[0];
+                for (const p of providers) {
+                    const opt = document.createElement('option');
+                    opt.value = p;
+                    opt.textContent = providerNames[p] || p;
+                    if (p === def) opt.selected = true;
+                    select.appendChild(opt);
+                }
+                const uploadSel = document.getElementById('uploadLlmProvider');
+                if (uploadSel) uploadSel.innerHTML = select.innerHTML;
+                hideConfigWarning();
+                return; // 成功则不再回退
+            }
+        }
+    } catch (_) {
+        // 忽略探测失败
+    }
+
+    // 2) 回退：本地存储方案
+    await loadAvailableProviders();
 }
 
 // 显示完整逐字稿

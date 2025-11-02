@@ -442,18 +442,18 @@ class VideoProcessor:
             
             # 检查文本处理器是否有可用的提供商
             available_providers = self.text_processor.get_available_providers()
-            if not available_providers:
-                task.status = "failed"
-                task.error_message = "没有可用的AI文本处理服务提供商，请先在设置页面配置API密钥"
-                self.save_tasks_to_disk()
-                return task
+            has_text_provider = bool(available_providers)
             
-            # 如果指定的provider不可用，使用默认provider
-            if not llm_provider or not self.text_processor.is_provider_available(llm_provider):
-                llm_provider = self.text_processor.get_default_provider()
-                self.logger.info(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
+            # 如果指定的provider不可用，使用默认provider（仅在有文本处理提供商时）
+            if has_text_provider:
+                if not llm_provider or not self.text_processor.is_provider_available(llm_provider):
+                    llm_provider = self.text_processor.get_default_provider()
+                    self.logger.info(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
+                else:
+                    self.logger.info(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
             else:
-                self.logger.info(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
+                llm_provider = None
+                self.logger.info(f"[{task_id}] 无可用AI文本处理提供商，跳过AI生成阶段")
             
             task.status = "processing"
             task.progress = 0
@@ -486,10 +486,22 @@ class VideoProcessor:
             )
             task.progress = 60
             
-            # 5-7. 文本生成/摘要/分析
-            self._step_generate_text_outputs(task, llm_provider)
-            # 立即显示逐字稿给用户
+            # 先用原始转写文本作为可预览内容，尽早给用户看到
+            if not getattr(task, 'transcript', None):
+                task.transcript = task.transcription.full_text
             task.transcript_ready = True
+            self.save_tasks_to_disk()
+
+            # 5-7. 文本生成/摘要/分析（若有可用的文本处理提供商）
+            if has_text_provider:
+                self._step_generate_text_outputs(task, llm_provider)
+            else:
+                # 无文本处理提供商：跳过AI润色/摘要/分析，直接使用原始转写文本
+                self.logger.warning(f"[{task_id}] 没有可用的AI文本处理服务提供商，仅输出原始转写文本")
+                task.progress = max(task.progress, 70)
+                task.progress_stage = "生成逐字稿"
+                task.progress_detail = "未配置文本处理服务，已使用原始转写文本"
+                self.save_tasks_to_disk()
             
             # 8. 保存结果
             task.progress_stage = "保存结果"
@@ -545,18 +557,18 @@ class VideoProcessor:
             
             # 检查文本处理器是否有可用的提供商
             available_providers = self.text_processor.get_available_providers()
-            if not available_providers:
-                task.status = "failed"
-                task.error_message = "没有可用的AI文本处理服务提供商，请先在设置页面配置API密钥"
-                self.save_tasks_to_disk()
-                return task
+            has_text_provider = bool(available_providers)
             
             # 如果指定的provider不可用，使用默认provider
-            if not llm_provider or not self.text_processor.is_provider_available(llm_provider):
-                llm_provider = self.text_processor.get_default_provider()
-                self.logger.info(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
+            if has_text_provider:
+                if not llm_provider or not self.text_processor.is_provider_available(llm_provider):
+                    llm_provider = self.text_processor.get_default_provider()
+                    self.logger.info(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
+                else:
+                    self.logger.info(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
             else:
-                self.logger.info(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
+                llm_provider = None
+                self.logger.info(f"[{task_id}] 无可用AI文本处理提供商，跳过AI生成阶段")
             
             task.status = "processing"
             task.progress = 0
@@ -652,9 +664,21 @@ class VideoProcessor:
             )
             task.progress = 60
 
-            # 文本生成 / 摘要 / 分析（与 URL 流程一致）
-            self._step_generate_text_outputs(task, llm_provider)
+            # 先将原始转写文本作为可预览内容，尽早给用户看到
+            if not getattr(task, 'transcript', None):
+                task.transcript = task.transcription.full_text
             task.transcript_ready = True
+            self.save_tasks_to_disk()
+
+            # 文本生成 / 摘要 / 分析（与 URL 流程一致）
+            if has_text_provider:
+                self._step_generate_text_outputs(task, llm_provider)
+            else:
+                self.logger.warning(f"[{task_id}] 没有可用的AI文本处理服务提供商，仅输出原始转写文本")
+                task.progress = max(task.progress, 70)
+                task.progress_stage = "生成逐字稿"
+                task.progress_detail = "未配置文本处理服务，已使用原始转写文本"
+                self.save_tasks_to_disk()
 
             # 保存结果
             task.progress_stage = "保存结果"
@@ -804,10 +828,17 @@ class VideoProcessor:
             "translation_ready": getattr(task, 'translation_ready', False)
         }
         
-        # 如果逐字稿已准备好，包含逐字稿内容
-        if getattr(task, 'transcript_ready', False) and task.transcript:
+        # 返回逐字稿/预览：优先返回 task.transcript；若无则降级为原始转写文本
+        if task.transcript and task.transcript.strip():
             progress_info["transcript_preview"] = task.transcript[:500] + "..." if len(task.transcript) > 500 else task.transcript
             progress_info["full_transcript"] = task.transcript
+            progress_info["transcript_ready"] = True
+        elif task.transcription and getattr(task.transcription, 'full_text', '').strip():
+            raw_text = task.transcription.full_text.strip()
+            progress_info["transcript_preview"] = raw_text[:500] + "..." if len(raw_text) > 500 else raw_text
+            progress_info["full_transcript"] = raw_text
+            # 即便后端未设置，也在进度响应中标记可预览
+            progress_info["transcript_ready"] = True
         
         return progress_info
 

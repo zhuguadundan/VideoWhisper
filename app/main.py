@@ -56,6 +56,12 @@ def settings():
     """设置页面"""
     return render_template('settings.html')
 
+# 静默处理 Chrome DevTools 探测请求，避免404噪音日志
+@main_bp.route('/.well-known/appspecific/com.chrome.devtools.json', methods=['GET'])
+def chrome_devtools_probe():
+    # 返回204以表明无内容，此请求与业务无关
+    return ("", 204)
+
 @main_bp.route('/api/health', methods=['GET'])
 def health_check():
     """健康检查端点"""

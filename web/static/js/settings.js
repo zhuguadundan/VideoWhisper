@@ -99,10 +99,24 @@ class APIConfigManager {
                 this.updateModelPlaceholder('siliconflow');
             }
             
-            // 加载 YouTube cookies
+            // 加载 YouTube cookies（对大文本延迟填充，避免阻塞首屏）
             if (config.youtube) {
-                document.getElementById('youtube_cookies').value = config.youtube.cookies || '';
-                this.updateYouTubeStatus(config.youtube.cookies ? 'configured' : 'untested');
+                const ytEl = document.getElementById('youtube_cookies');
+                const cookies = config.youtube.cookies || '';
+                const defer = (cb) => {
+                    if (typeof window.requestIdleCallback === 'function') {
+                        requestIdleCallback(cb, { timeout: 1500 });
+                    } else {
+                        setTimeout(cb, 0);
+                    }
+                };
+                if (cookies && cookies.length > 4000) {
+                    ytEl.placeholder = `已保存 ${cookies.length} 字节的 Cookies，稍后自动填充...`;
+                    defer(() => { ytEl.value = cookies; });
+                } else {
+                    ytEl.value = cookies;
+                }
+                this.updateYouTubeStatus(cookies ? 'configured' : 'untested');
             }
             
             // 加载 Obsidian 配置
