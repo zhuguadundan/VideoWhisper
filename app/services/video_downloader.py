@@ -73,7 +73,7 @@ class VideoDownloader:
                 'extractor_args': {
                     'youtube': {
                         'player_client': ['web'],  # 仅使用web客户端避免PO Token
-                        'player_skip': ['dash', 'hls'],  # 跳过可能需要认证的格式
+                        'skip': ['hls', 'dash'],  # 按最新文档使用 skip=hls,dash
                     }
                 },
                 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
@@ -121,7 +121,7 @@ class VideoDownloader:
                 'extractor_args': {
                     'youtube': {
                         'player_client': ['web'],  # 仅使用web客户端
-                        'player_skip': ['dash'],  # 跳过dash格式减少认证需求
+                        'skip': ['dash'],  # 使用最新文档的 skip 参数跳过 dash
                     }
                 },
                 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
@@ -181,14 +181,33 @@ class VideoDownloader:
         # 使用专门的信息提取配置，确保获取完整元数据
         ydl_opts = self._get_info_extraction_config(url, cookies_str)
         
-        # 尝试多种策略获取信息
+        # 尝试多种策略获取信息（优先避免 SABR/nsig 问题）
         strategies = [
-            # 策略1: 使用web客户端
-            {'extractor_args': {'youtube': {'player_client': ['web']}}},
-            # 策略2: 最小化配置
-            {'extractor_args': {'youtube': {'player_client': ['web'], 'player_skip': ['dash', 'hls']}}},
-            # 策略3: 基础配置
-            {}
+            # 1) Android 客户端（最常见可用）
+            {
+                'extractor_args': {'youtube': {'player_client': ['android']}},
+                'user_agent': 'com.google.android.youtube/19.20.33 (Linux; U; Android 13) gzip',
+            },
+            # 2) iOS 客户端
+            {
+                'extractor_args': {'youtube': {'player_client': ['ios']}},
+                'user_agent': 'com.google.ios.youtube/19.20.3 (iPhone; iOS 16.4) gzip',
+            },
+            # 3) mweb（移动 web）
+            {
+                'extractor_args': {'youtube': {'player_client': ['mweb']}},
+                'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Mobile/15E148 Safari/604.1',
+            },
+            # 4) tvhtml5
+            {
+                'extractor_args': {'youtube': {'player_client': ['tvhtml5']}},
+                'user_agent': 'Mozilla/5.0 (TV; Linux; Tizen 6.5) AppleWebKit/537.36 (KHTML, like Gecko) SmartTV Safari/537.36',
+            },
+            # 5) web（最后兜底，避开 hls/dash）
+            {
+                'extractor_args': {'youtube': {'player_client': ['web'], 'skip': ['hls', 'dash']}},
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+            },
         ]
         
         for i, strategy in enumerate(strategies):
@@ -277,14 +296,33 @@ class VideoDownloader:
         """
         logger.debug(f"download_audio_only 开始: url={url}, task_id={task_id}")
         
-        # 尝试多种下载策略
+        # 尝试多种下载策略（按客户端降级，优先 android/ios，避免 web SABR 限制）
         strategies = [
-            # 策略1: 使用web客户端，跳过dash
-            {'extractor_args': {'youtube': {'player_client': ['web'], 'player_skip': ['dash']}}},
-            # 策略2: 仅使用web客户端
-            {'extractor_args': {'youtube': {'player_client': ['web']}}},
-            # 策略3: 基础配置
-            {}
+            # 1) Android 客户端（允许 dash，便于获取 m4a 音频）
+            {
+                'extractor_args': {'youtube': {'player_client': ['android']}},
+                'user_agent': 'com.google.android.youtube/19.20.33 (Linux; U; Android 13) gzip',
+            },
+            # 2) iOS 客户端
+            {
+                'extractor_args': {'youtube': {'player_client': ['ios']}},
+                'user_agent': 'com.google.ios.youtube/19.20.3 (iPhone; iOS 16.4) gzip',
+            },
+            # 3) mweb 客户端
+            {
+                'extractor_args': {'youtube': {'player_client': ['mweb']}},
+                'user_agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Mobile/15E148 Safari/604.1',
+            },
+            # 4) tvhtml5 客户端
+            {
+                'extractor_args': {'youtube': {'player_client': ['tvhtml5']}},
+                'user_agent': 'Mozilla/5.0 (TV; Linux; Tizen 6.5) AppleWebKit/537.36 (KHTML, like Gecko) SmartTV Safari/537.36',
+            },
+            # 5) web 客户端兜底（跳过 hls/dash，避免 SABR）
+            {
+                'extractor_args': {'youtube': {'player_client': ['web'], 'skip': ['hls', 'dash']}},
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+            },
         ]
         
         for i, strategy in enumerate(strategies):
@@ -308,7 +346,7 @@ class VideoDownloader:
                 logger.debug(f"初始输出路径模板: {output_path}")
                     
                 # 解析 format 规格，允许 dict 的平台化配置，保证传入 yt-dlp 为字符串
-                fmt_spec = (self.config.get('downloader', {}).get('general', {}).get('audio_format', 'bestaudio/best'))
+                fmt_spec = (self.config.get('downloader', {}).get('general', {}).get('audio_format', 'ba[ext=m4a]/ba/bestaudio/best'))
                 if isinstance(fmt_spec, dict):
                     if 'bilibili.com' in url:
                         fmt_spec = fmt_spec.get('bilibili') or 'bestaudio/best'

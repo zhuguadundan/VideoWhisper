@@ -67,7 +67,7 @@ https://cloud.siliconflow.cn/i/uy4d8V8Y
 
 ## 🛠️ 技术栈
 
-- **后端**: Python Flask + yt-dlp + FFmpeg
+- **后端**: Python Flask + yt-dlp + FFmpeg（yt-dlp 2025.10.22 需要 Python ≥ 3.10）
 - **AI服务**: SiliconFlow语音识别 + OpenAI/Gemini文本处理
 - **前端**: Bootstrap 5 + JavaScript
 - **部署**: Docker容器化

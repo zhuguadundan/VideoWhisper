@@ -1,5 +1,5 @@
 # 使用Python官方镜像作为基础镜像
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 # 版本参数（单一来源）
 ARG APP_VERSION=1.2.0
