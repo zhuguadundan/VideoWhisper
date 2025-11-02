@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>智能视频转文本处理平台</title>
+    <title>VideoWhisper视频智语</title>
     <link rel="dns-prefetch" href="//cdn.bootcdn.net">
     <link rel="preconnect" href="https://cdn.bootcdn.net" crossorigin>
     <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
@@ -33,8 +33,8 @@
                         <div class="hero-icon mb-4">
                             <i class="fas fa-video"></i>
                         </div>
-                        <h1 class="hero-title mb-3">智能视频转文本处理平台</h1>
-                        <p class="hero-subtitle mb-0">基于AI技术，将视频内容快速转换为文字，支持多平台视频解析与智能内容分析</p>
+                        <h1 class="hero-title mb-3">VideoWhisper视频智语</h1>
+                        <p class="hero-subtitle mb-0">基于AI技术，将视频、音频内容快速转换为文字，支持多平台视频解析及本地视频音频文件上传解析与智能内容分析</p>
                     </div>
                 </div>
             </div>
@@ -89,7 +89,7 @@
                                                 </div>
                                                 <div class="form-text mt-2">
                                                     <div class="platform-tags">
-                                                        <span class="platform-tag">当前仅保证 YouTube 稳定，其他平台计划中</span>
+                                                        <span class="platform-tag">当前仅保证bilibili、YouTube 稳定，其他平台计划中</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -465,8 +465,30 @@
         </div>
     </div>
 
-    <!-- Bootstrap JS -->
-    <script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <!-- Bootstrap JS with resilient loader to avoid QUIC errors -->
+    <script>
+      (function() {
+        function loadScript(src, onerror) {
+          var s = document.createElement('script');
+          s.src = src;
+          s.defer = true;
+          s.onerror = onerror;
+          (document.head || document.body).appendChild(s);
+        }
+        // Primary: jsDelivr (HTTP/2, Cloudflare)
+        loadScript('https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js', function() {
+          // Fallback: unpkg
+          loadScript('https://unpkg.com/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js', function() {
+            // Last resort: original BootCDN
+            loadScript('https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/js/bootstrap.bundle.min.js', function() {
+              // Minimal shim to prevent runtime errors if all CDNs fail
+              window.bootstrap = window.bootstrap || { Toast: function() { return { show: function(){}, hide: function(){} } } };
+              console.warn('Bootstrap加载失败，已启用最小Toast兼容层');
+            });
+          });
+        });
+      })();
+    </script>
     <!-- UI Helpers -->
     <script src="{{ url_for('static', filename='js/ui-helpers.js') }}"></script>
     <!-- 自定义JS -->

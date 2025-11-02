@@ -67,22 +67,76 @@ function hasValidConfig(config) {
 
 // Toast通知函数
 function showToast(type, title, message) {
-    const toastElement = document.getElementById('liveToast');
+    let toastElement = document.getElementById('liveToast');
+    // 若容器不存在，动态创建一套标准结构，避免页面缺少模板时报错
     if (!toastElement) {
-        console.warn('Toast元素未找到，使用console.log代替:', type, title, message);
-        console.log(`[${type.toUpperCase()}] ${title}: ${message}`);
-        return;
+        const container = document.createElement('div');
+        container.className = 'toast-container position-fixed top-0 end-0 p-3';
+        const toast = document.createElement('div');
+        toast.id = 'liveToast';
+        toast.className = 'toast';
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
+        toast.setAttribute('aria-atomic', 'true');
+        const header = document.createElement('div');
+        header.className = 'toast-header';
+        const iconDiv = document.createElement('div');
+        iconDiv.className = 'toast-icon me-2';
+        const titleEl = document.createElement('strong');
+        titleEl.className = 'me-auto toast-title';
+        titleEl.textContent = '通知';
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'btn-close';
+        closeBtn.setAttribute('data-bs-dismiss', 'toast');
+        closeBtn.setAttribute('aria-label', 'Close');
+        header.appendChild(iconDiv);
+        header.appendChild(titleEl);
+        header.appendChild(closeBtn);
+        const bodyDiv = document.createElement('div');
+        bodyDiv.className = 'toast-body';
+        toast.appendChild(header);
+        toast.appendChild(bodyDiv);
+        container.appendChild(toast);
+        document.body.appendChild(container);
+        toastElement = toast;
     }
-    
-    const toastIcon = toastElement.querySelector('.toast-icon');
-    const toastTitle = toastElement.querySelector('.toast-title');
-    const toastBody = toastElement.querySelector('.toast-body');
-    
-    // 检查所有必需元素是否存在
+
+    // 确保子元素存在，不存在则补齐
+    let toastIcon = toastElement.querySelector('.toast-icon');
+    let toastTitle = toastElement.querySelector('.toast-title');
+    let toastBody = toastElement.querySelector('.toast-body');
+
     if (!toastIcon || !toastTitle || !toastBody) {
-        console.warn('Toast子元素未找到，使用console.log代替:', type, title, message);
-        console.log(`[${type.toUpperCase()}] ${title}: ${message}`);
-        return;
+        let header = toastElement.querySelector('.toast-header');
+        if (!header) {
+            header = document.createElement('div');
+            header.className = 'toast-header';
+            toastElement.insertBefore(header, toastElement.firstChild);
+        }
+        if (!toastIcon) {
+            toastIcon = document.createElement('div');
+            toastIcon.className = 'toast-icon me-2';
+            header.insertBefore(toastIcon, header.firstChild);
+        }
+        if (!toastTitle) {
+            toastTitle = document.createElement('strong');
+            toastTitle.className = 'me-auto toast-title';
+            header.appendChild(toastTitle);
+        }
+        if (!header.querySelector('.btn-close')) {
+            const closeBtn = document.createElement('button');
+            closeBtn.type = 'button';
+            closeBtn.className = 'btn-close';
+            closeBtn.setAttribute('data-bs-dismiss', 'toast');
+            closeBtn.setAttribute('aria-label', 'Close');
+            header.appendChild(closeBtn);
+        }
+        if (!toastBody) {
+            toastBody = document.createElement('div');
+            toastBody.className = 'toast-body';
+            toastElement.appendChild(toastBody);
+        }
     }
     
     // 设置图标和样式
@@ -285,56 +339,59 @@ function hideConfigWarning() {
 
 // 文件上传相关函数
 async function initializeFileUpload() {
+    // 第一步：立即使用默认配置，避免阻塞用户操作
+    if (!uploadConfig) {
+        uploadConfig = getDefaultUploadConfig();
+        console.log('已应用默认上传配置（即时可用）:', uploadConfig);
+    }
+
+    // 第二步：后台刷新服务器配置（短超时，非阻塞）
     try {
-        console.log('正在初始化文件上传配置...');
-        
-        // 设置超时时间，避免长时间等待
+        console.log('正在初始化文件上传配置（后台刷新）...');
+
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
-        
-        // 加载上传配置
-        const response = await fetch('/api/upload/config', {
+        const timeoutMs = 2500; // 缩短超时，降低等待感知
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+        fetch('/api/upload/config', {
             signal: controller.signal,
             headers: {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
             }
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-            const result = await response.json();
-            if (result.success) {
-                uploadConfig = result.data;
-                console.log('上传配置加载成功:', uploadConfig);
-            } else {
-                console.warn('加载上传配置失败:', result.error);
-                // 使用默认配置
-                uploadConfig = getDefaultUploadConfig();
-                console.log('使用默认上传配置:', uploadConfig);
+        })
+        .then(async (response) => {
+            clearTimeout(timeoutId);
+            if (!response.ok) {
+                console.warn(`上传配置API响应错误: ${response.status} ${response.statusText}`);
+                return null;
             }
-        } else {
-            console.warn(`上传配置API响应错误: ${response.status} ${response.statusText}`);
-            uploadConfig = getDefaultUploadConfig();
-            console.log('使用默认上传配置:', uploadConfig);
-        }
+            try {
+                const result = await response.json();
+                return result;
+            } catch (e) {
+                console.warn('解析上传配置响应失败:', e);
+                return null;
+            }
+        })
+        .then((result) => {
+            if (!result) return;
+            if (result.success && result.data) {
+                uploadConfig = result.data;
+                console.log('上传配置加载成功（已刷新）:', uploadConfig);
+            } else if (result && !result.success) {
+                console.warn('加载上传配置失败（保持默认）:', result.error);
+            }
+        })
+        .catch((error) => {
+            if (error && error.name === 'AbortError') {
+                console.warn('文件上传配置加载超时（保持默认）');
+            } else {
+                console.warn('初始化文件上传配置时发生错误（保持默认）:', error && error.message ? error.message : error);
+            }
+        });
     } catch (error) {
-        console.warn('初始化文件上传配置时发生错误:', error.message);
-        
-        // 根据错误类型提供不同的处理
-        if (error.name === 'AbortError') {
-            console.warn('文件上传配置加载超时，使用默认配置');
-        } else if (error.message.includes('fetch')) {
-            console.warn('无法连接到服务器，使用默认配置');
-        }
-        
-        // 使用默认配置，确保页面功能不受影响
-        uploadConfig = getDefaultUploadConfig();
-        console.log('使用默认上传配置:', uploadConfig);
-        
-        // 不显示错误提示，避免影响用户体验
-        // 只在控制台记录，让开发者知道问题
+        console.warn('初始化文件上传配置流程异常（保持默认）:', error.message);
     }
 }
 
@@ -2475,6 +2532,19 @@ function displayHistoryTasks(tasks) {
         }
         tdOps.appendChild(btn);
 
+        // 删除按钮：除 processing 外均允许，避免残留记录无法清理
+        const delBtn = document.createElement('button');
+        if (task.status !== 'processing') {
+            delBtn.className = 'btn btn-sm btn-outline-danger ms-2';
+            delBtn.innerHTML = '<i class="fas fa-trash me-1"></i>删除';
+            delBtn.addEventListener('click', () => deleteTaskRecord(task.id, task.title || ''));
+        } else {
+            delBtn.className = 'btn btn-sm btn-outline-secondary ms-2';
+            delBtn.disabled = true;
+            delBtn.textContent = '不可用';
+        }
+        tdOps.appendChild(delBtn);
+
         tr.appendChild(tdTitle);
         tr.appendChild(tdStatus);
         tr.appendChild(tdTime);
@@ -2616,5 +2686,39 @@ async function stopAllTasks() {
         // 恢复按钮状态
         stopBtn.disabled = false;
         stopBtn.innerHTML = originalText;
+    }
+}
+
+// 删除历史任务记录（含结果文件）
+async function deleteTaskRecord(taskId, title) {
+    if (!taskId) return;
+
+    const name = title && String(title).trim() ? title : taskId;
+    const confirmMsg = `确定要删除该处理历史记录吗？\n\n${name}\n\n这将删除与该任务相关的所有结果文件。`;
+    if (!confirm(confirmMsg)) return;
+
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+        const cfg = getApiConfig();
+        const adminToken = cfg?.security?.admin_token || localStorage.getItem('videowhisper_admin_token');
+        if (adminToken) headers['X-Admin-Token'] = adminToken;
+    } catch (e) { /* 忽略 */ }
+
+    try {
+        const res = await fetch(`/api/tasks/delete/${encodeURIComponent(taskId)}`, {
+            method: 'POST',
+            headers
+        });
+        const result = await res.json();
+        if (result.success) {
+            showToast('success', '已删除', `任务已删除：${name}`);
+            if (currentTaskId === taskId) currentTaskId = null;
+            setTimeout(() => loadHistoryTasks(), 300);
+        } else {
+            showToast('error', '删除失败', result.message || '服务器未返回成功');
+        }
+    } catch (err) {
+        console.error('删除任务失败:', err);
+        showToast('error', '删除失败', '网络错误或服务器异常');
     }
 }

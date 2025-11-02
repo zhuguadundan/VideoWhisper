@@ -1078,3 +1078,37 @@ def stop_all_tasks():
     except Exception as e:
         logging.error(f"停止所有任务失败: {e}")
         raise Exception(f"停止任务失败: {str(e)}")
+
+@main_bp.route('/api/tasks/delete/<task_id>', methods=['POST', 'DELETE'])
+@api_error_handler
+@admin_protected
+def delete_task_record(task_id):
+    """删除处理历史记录（并尽量清理相关文件）
+    - 不依赖输出目录是否存在；哪怕目录已清理，也会删除内存记录
+    - 同时尝试清理 temp 中的临时文件与历史登记
+    """
+    try:
+        fm = FileManager()
+        # 尝试删除输出目录（如果存在）
+        ok_output = fm.delete_output_task_dir(task_id)
+        # 清理临时目录/登记（容错）
+        try:
+            fm.cleanup_task_files(task_id)
+        except Exception:
+            pass
+
+        # 删除内存任务记录
+        if task_id in video_processor.tasks:
+            del video_processor.tasks[task_id]
+            try:
+                video_processor.save_tasks_to_disk()
+            except Exception:
+                pass
+
+        # 统一返回成功，提示是否清理了输出目录
+        if ok_output:
+            return safe_json_response(success=True, message=f'任务 {task_id} 记录已删除，相关文件已清理')
+        else:
+            return safe_json_response(success=True, message=f'任务 {task_id} 记录已删除（未找到输出目录，可能已被清理）')
+    except Exception as e:
+        return safe_json_response(success=False, message=str(e))
