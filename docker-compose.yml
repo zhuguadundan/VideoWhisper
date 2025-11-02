@@ -27,6 +27,8 @@ services:
       - HTTPS_HOST=0.0.0.0
       - CERT_AUTO_GENERATE=true
       - CERT_DOMAIN=你服务器ip或域名
+      # 可选：调整最大本地上传大小（MB），默认500
+      # - MAX_UPLOAD_SIZE_MB=2048
     restart: unless-stopped
     
     # 健康检查已移除，避免周期性请求造成日志噪声

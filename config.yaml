@@ -75,7 +75,7 @@ downloader:
 
 # 文件上传配置
 upload:
-  max_upload_size: 500              # 最大上传文件大小（MB）
+  max_upload_size: 500              # 最大上传文件大小（MB），可用环境变量 MAX_UPLOAD_SIZE_MB 覆盖
   upload_chunk_size: 5              # 分块上传大小（MB）
   allowed_video_formats:             # 允许的视频格式
     - "mp4"

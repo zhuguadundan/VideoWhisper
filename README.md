@@ -120,6 +120,12 @@ pytest -q
 - **data.json** - 完整处理数据
 
 ## ⚙️ 可调处理参数（config.yaml）
+
+### 上传大小限制
+- 服务器端默认限制单个本地上传文件为 500MB。
+- 可通过环境变量调整：`MAX_UPLOAD_SIZE_MB=2048`（单位：MB）。
+- 或在 `config.yaml` 中设置：`upload.max_upload_size: 500`（被环境变量优先生效）。
+- 后端同时开启 Flask `MAX_CONTENT_LENGTH` 防止大包请求，超限返回 413 及友好错误信息。
 - `processing.long_audio_threshold_seconds`：超过该秒数视为长音频（默认 300）
 - `processing.segment_duration_seconds`：长音频分段长度（默认 300）
 - `processing.max_consecutive_failures`：分段连续失败上限（默认 3）

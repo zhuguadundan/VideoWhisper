@@ -20,8 +20,15 @@ class FileUploader:
         self.config = Config.load_config()
         self.file_manager = FileManager()
         
-        # 获取上传配置
-        self.max_upload_size = self.config.get('upload', {}).get('max_upload_size', 500) * 1024 * 1024  # MB to bytes
+        # 获取上传配置（优先环境变量，其次配置文件），默认500MB
+        # 支持 MAX_UPLOAD_SIZE_MB 或 UPLOAD_MAX_SIZE_MB 两种环境变量命名
+        env_max_mb = os.environ.get('MAX_UPLOAD_SIZE_MB') or os.environ.get('UPLOAD_MAX_SIZE_MB')
+        try:
+            max_mb = int(env_max_mb) if env_max_mb else int(self.config.get('upload', {}).get('max_upload_size', 500))
+        except Exception:
+            max_mb = int(self.config.get('upload', {}).get('max_upload_size', 500))
+        self.max_upload_size = max_mb * 1024 * 1024  # MB -> bytes
+
         self.allowed_video_formats = self.config.get('upload', {}).get('allowed_video_formats', 
                                                                    ['mp4', 'avi', 'mov', 'mkv', 'webm', 'flv'])
         self.allowed_audio_formats = self.config.get('upload', {}).get('allowed_audio_formats', 

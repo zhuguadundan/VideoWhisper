@@ -62,6 +62,18 @@ def create_app():
     stream_handler.setFormatter(fmt)
     # 重置并添加
     root_logger.handlers = [file_handler, stream_handler]
+
+    # 全局上传大小限制（优先环境变量 MAX_UPLOAD_SIZE_MB 或 UPLOAD_MAX_SIZE_MB，其次配置文件 upload.max_upload_size；默认500MB）
+    try:
+        app_cfg = Config.load_config()
+    except Exception:
+        app_cfg = {}
+    env_max_mb = os.environ.get('MAX_UPLOAD_SIZE_MB') or os.environ.get('UPLOAD_MAX_SIZE_MB')
+    try:
+        max_upload_mb = int(env_max_mb) if env_max_mb else int((app_cfg.get('upload') or {}).get('max_upload_size', 500))
+    except Exception:
+        max_upload_mb = 500
+    app.config['MAX_CONTENT_LENGTH'] = max_upload_mb * 1024 * 1024
     
     # 启动时一次性安全提示（保持默认向后兼容，不收紧）
     try:
@@ -190,6 +202,16 @@ def create_app():
         except Exception:
             pass
         return resp
+
+    @app.errorhandler(413)
+    def _handle_request_entity_too_large_clean(e):
+        if is_api_request():
+            return jsonify({
+                'success': False,
+                'error': '文件过大',
+                'message': f'文件大小超过限制（最大 {max_upload_mb}MB）'
+            }), 413
+        return f"<h1>文件过大</h1><p>文件大小超过限制（最大 {max_upload_mb}MB）。</p>", 413
 
     # 注册蓝图
     from app.main import main_bp
