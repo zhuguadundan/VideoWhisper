@@ -25,10 +25,18 @@ def api_error_handler(f):
             }), 404
         except KeyError as e:
             logging.warning(f"KeyError in {f.__name__}: {str(e)}")
+            missing = str(e)
+            try:
+                missing_clean = missing.strip("'\"")
+            except Exception:
+                missing_clean = missing
+            friendly = None
+            if missing_clean == 'url':
+                friendly = '视频信息返回不完整或站点暂不支持，请更换链接或稍后重试'
             return jsonify({
                 'success': False,
                 'error': '缺少必要参数',
-                'message': f'缺少参数: {str(e)}'
+                'message': friendly or f'缺少参数: {missing}'
             }), 400
         except ConnectionError as e:
             logging.error(f"ConnectionError in {f.__name__}: {str(e)}")

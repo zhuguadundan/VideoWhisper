@@ -189,6 +189,18 @@ Made with ❤️ by VideoWhisper Team
 
 ### HTTPS 部署建议
 
+### 运行时环境变量（内存与代理）
+
+- 代理透传与 HTTPS 语义（容器内 stunnel 回源）
+  - `USE_PROXY_FIX=true`（默认）：启用 `ProxyFix(x_for=1, x_proto=1)` 以识别代理头。
+  - `FORCE_HTTPS_SCHEME=true`（默认）：对来自本地回源的请求强制 `wsgi.url_scheme=https`，保证 URL 生成与 `Secure` Cookie 语义。
+- Gunicorn 并发（默认内存优先）
+  - `GUNICORN_WORKER_CLASS=sync`、`GUNICORN_WORKERS=1`、`GUNICORN_THREADS=1`、`GUNICORN_TIMEOUT=120`
+  - 如需更高可用性：将 `GUNICORN_WORKERS=2`（或更高）
+- glibc arena 限制（降低碎片与驻留）
+  - `MALLOC_ARENA_MAX=2`（仅对 glibc 有效；镜像使用 debian/ubuntu）
+
+说明：镜像内采用 `stunnel` 作为 TLS 终止器并回源到应用的 5000 端口；`stunnel` 不注入 `X-Forwarded-*` 头，因此应用通过上面两项开关保证 HTTPS 语义不变（Never break userspace）。
 - 开发/本地：内置自签证书便于调试（端口 5443）。
 - 生产：推荐由反向代理（Nginx、Caddy、Traefik）终止 TLS，再代理到应用的 HTTP/HTTPS 端口；应用内置证书仅用于本地开发。
 - 说明：上述限制默认同时作用于“连接测试接口”和“实际处理接口”，行为由同一组环境变量/配置开关控制（可按需调整以兼容旧部署）。

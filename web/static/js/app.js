@@ -1008,6 +1008,12 @@ async function handleUrlFormSubmit(e) {
         return;
     }
     
+    // 若已有进行中的任务，避免重复提交（部分浏览器扩展/回车可能触发多次）
+    if (progressInterval && currentTaskId) {
+        showAlert('已有任务在处理，请等待完成或完成后再提交', 'info');
+        return;
+    }
+
     // 禁用提交按钮
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>处理中...';
@@ -1145,10 +1151,10 @@ function startProgressMonitoring(taskId = null) {
                     if (data.status === 'failed') {
                         clearInterval(progressInterval);
                         let errorMsg = data.error_message || '处理失败';
+                        if (typeof errorMsg === 'string' && /^'?url'?$/.test(errorMsg.trim())) {
+                            errorMsg = '视频信息返回不完整或站点暂不支持，请更换链接或稍后重试';
+                        }
                         showAlert('处理失败: ' + errorMsg, 'danger');
-                        return;
-                    }
-                } else {
                     // API返回失败结果
                     clearInterval(progressInterval);
                     showAlert(result.message || result.error || '无法获取进度信息', 'danger');

@@ -21,11 +21,21 @@ services:
       - PYTHONPATH=/app
       # 设置文件权限相关环境变量
       - PYTHONUNBUFFERED=1
+      # 代理透传与 HTTPS 语义（容器内 stunnel 回源场景，默认开启）
+      - USE_PROXY_FIX=true
+      - FORCE_HTTPS_SCHEME=true
       # HTTPS配置（默认启用）
       - HTTPS_ENABLED=true
       - HTTPS_PORT=5443
       - HTTPS_HOST=0.0.0.0
       - CERT_AUTO_GENERATE=true
+      # Gunicorn 并发（默认内存优先）
+      - GUNICORN_WORKER_CLASS=sync
+      - GUNICORN_WORKERS=1
+      - GUNICORN_THREADS=1
+      - GUNICORN_TIMEOUT=120
+      # glibc arena 限制（降低碎片与驻留）
+      - MALLOC_ARENA_MAX=2
       - CERT_DOMAIN=你服务器ip或域名
       # 可选：调整最大本地上传大小（MB），默认500
       # - MAX_UPLOAD_SIZE_MB=2048

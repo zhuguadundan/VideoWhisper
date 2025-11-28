@@ -17,6 +17,90 @@ from app.services.file_uploader import FileUploader
 from app.config.settings import Config
 from app.utils.helpers import sanitize_filename as utils_sanitize_filename
 
+
+class _TaskStore:
+    """管理 VideoProcessor 的任务存储和取消标记逻辑（内部使用）。"""
+
+    def __init__(self, owner: "VideoProcessor") -> None:
+        self._owner = owner
+
+    def request_cancel(self, task_id: str) -> None:
+        with self._owner._lock:
+            self._owner._cancel_flags[task_id] = True
+
+    def cancel_all_processing(self) -> List[str]:
+        affected: List[str] = []
+        with self._owner._lock:
+            for tid, t in self._owner.tasks.items():
+                if getattr(t, "status", None) == "processing":
+                    self._owner._cancel_flags[tid] = True
+                    affected.append(tid)
+        return affected
+
+    def is_cancelled(self, task_id: str) -> bool:
+        with self._owner._lock:
+            return self._owner._cancel_flags.get(task_id, False)
+
+    def create_task(self, video_url: str, youtube_cookies: str = None) -> str:
+        """与原 VideoProcessor.create_task 行为保持一致。"""
+
+        with self._owner._lock:
+            for tid, t in self._owner.tasks.items():
+                try:
+                    if (
+                        getattr(t, "video_url", "") == video_url
+                        and getattr(t, "status", "pending")
+                        in ("pending", "processing")
+                    ):
+                        return tid
+                except Exception:
+                    continue
+
+        task_id = str(uuid.uuid4())
+        task = ProcessingTask(id=task_id, video_url=video_url)
+        if youtube_cookies:
+            task.youtube_cookies = youtube_cookies
+        with self._owner._lock:
+            self._owner.tasks[task_id] = task
+            self._owner.save_tasks_to_disk()
+        return task_id
+
+    def create_upload_task(
+        self,
+        original_filename: str,
+        file_size: int,
+        file_type: str,
+        mime_type: str,
+    ) -> str:
+        """与原 VideoProcessor.create_upload_task 行为保持一致。"""
+
+        task_id = str(uuid.uuid4())
+        upload_task = UploadTask(
+            id=task_id,
+            video_url="",
+            file_type=file_type,
+            original_filename=original_filename,
+            file_size=file_size,
+            upload_status="pending",
+            need_audio_extraction=(file_type == "video"),
+        )
+        with self._owner._lock:
+            self._owner.tasks[task_id] = upload_task
+            self._owner.save_tasks_to_disk()
+        return task_id
+
+    def get_task(self, task_id: str) -> Optional[ProcessingTask]:
+        with self._owner._lock:
+            return self._owner.tasks.get(task_id)
+
+
+class _ProcessingPipeline:
+    """预留给处理流水线逻辑的内部封装类（目前主要作为结构占位）。"""
+
+    def __init__(self, owner: "VideoProcessor") -> None:
+        self._owner = owner
+
+
 class VideoProcessor:
     """视频处理核心类"""
     
@@ -64,28 +148,24 @@ class VideoProcessor:
         self.tasks_file = os.path.join(self.output_dir, 'tasks.json')
         # 任务取消标记存储
         self._cancel_flags: Dict[str, bool] = {}
-        
+
+        # 内部子组件：任务存储与处理流水线（保持对外 API 不变）
+        self._task_store = _TaskStore(self)
+        self._pipeline = _ProcessingPipeline(self)
+
         # 加载已有任务数据
         self.load_tasks_from_disk()
 
     def request_cancel(self, task_id: str):
         """请求取消指定任务"""
-        with self._lock:
-            self._cancel_flags[task_id] = True
+        self._task_store.request_cancel(task_id)
 
     def cancel_all_processing(self) -> List[str]:
         """标记所有 processing 状态任务为取消，返回受影响的任务ID列表"""
-        affected: List[str] = []
-        with self._lock:
-            for tid, t in self.tasks.items():
-                if getattr(t, 'status', None) == 'processing':
-                    self._cancel_flags[tid] = True
-                    affected.append(tid)
-        return affected
+        return self._task_store.cancel_all_processing()
 
     def _is_cancelled(self, task_id: str) -> bool:
-        with self._lock:
-            return self._cancel_flags.get(task_id, False)
+        return self._task_store.is_cancelled(task_id)
     
     def _sanitize_filename(self, filename: str) -> str:
         """统一文件名清洗，复用公共实现"""
@@ -93,6 +173,15 @@ class VideoProcessor:
     
     def create_task(self, video_url: str, youtube_cookies: str = None) -> str:
         """创建新的处理任务 - 简化版"""
+        # 去重：如果同一 URL 已有进行中的任务，直接复用 task_id（幂等性）
+        with self._lock:
+            for tid, t in self.tasks.items():
+                try:
+                    if getattr(t, 'video_url', '') == video_url and getattr(t, 'status', 'pending') in ('pending', 'processing'):
+                        return tid
+                except Exception:
+                    continue
+
         task_id = str(uuid.uuid4())
         task = ProcessingTask(id=task_id, video_url=video_url)
         
@@ -186,18 +275,37 @@ class VideoProcessor:
             task.progress_detail = detail
         self.save_tasks_to_disk()
 
-    def _step_get_video_info(self, task_id: str, task: ProcessingTask) -> Dict[str, Any]:
-        self.logger.info(f"[{task_id}] 获取视频信息...")
-        video_info_dict = self.video_downloader.get_video_info(task.video_url, task.youtube_cookies)
+    def _step_get_video_info(self, task_id: str, task: ProcessingTask) -> Optional[Dict[str, Any]]:
+        try:
+            video_info_dict = self.video_downloader.get_video_info(task.video_url, task.youtube_cookies)
+        except Exception as e:
+            # 友好错误：抓取失败，带原因提示
+            self.logger.exception(f"[{task_id}] 获取视频信息失败: {e}")
+            task.status = 'failed'
+            task.error_message = '获取视频信息失败：链接不可用或站点暂不支持'
+            self.save_tasks_to_disk()
+            return None
+
+        # 兼容缺失字段，提供安全默认值，避免 KeyError
+        title = (video_info_dict or {}).get('title') or '未命名视频'
+        url = (video_info_dict or {}).get('url') or (video_info_dict or {}).get('webpage_url') or task.video_url
+        try:
+            duration = float((video_info_dict or {}).get('duration') or 0)
+        except Exception:
+            duration = 0.0
+        uploader = (video_info_dict or {}).get('uploader') or ''
+
         task.video_info = VideoInfo(
-            title=video_info_dict['title'],
-            url=video_info_dict['url'],
-            duration=video_info_dict['duration'],
-            uploader=video_info_dict['uploader']
+            title=title,
+            url=url,
+            duration=duration,
+            uploader=uploader,
         )
         task.progress = 10
-        task.progress_detail = f"视频时长: {self._format_duration(video_info_dict['duration'])}"
-        task.estimated_time = int(video_info_dict['duration'] * 0.3)
+        try:
+            task.estimated_time = int(duration * 0.3)
+        except Exception:
+            task.estimated_time = None
         return video_info_dict
 
     def _step_download_audio(self, task_id: str, task: ProcessingTask) -> str:
@@ -464,7 +572,10 @@ class VideoProcessor:
             # 1. 获取视频信息
             if self._fail_if_cancelled(task_id, task):
                 return task
-            _ = self._step_get_video_info(task_id, task)
+            info = self._step_get_video_info(task_id, task)
+            if info is None:
+                # 已在 _step_get_video_info 中设置失败状态和错误信息
+                return task
 
             # 2. 下载音频
             if self._fail_if_cancelled(task_id, task):

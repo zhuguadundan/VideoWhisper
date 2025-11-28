@@ -1,12 +1,5 @@
-try:
-    import openai
-except ImportError:
-    openai = None
-
-try:
-    import google.generativeai as genai
-except ImportError:
-    genai = None
+openai = None
+genai = None
 
 from typing import Dict, Any, Optional, List
 from app.config.settings import Config
@@ -47,52 +40,78 @@ class TextProcessor:
         
         # 初始化 OpenAI Client
         self.openai_client = None
-        if self.openai_config.get('api_key') and openai:
+        # 客户端占位，首次使用时懒加载
+        
+        # 初始化 Gemini
+        self.gemini_model = None
+        # 客户端占位，首次使用时懒加载
+                
+        # 初始化 SiliconFlow Client (使用OpenAI兼容接口)
+        self.siliconflow_client = None
+        # 客户端占位，首次使用时懒加载
+
+    # ---- 懒加载确保方法 ----
+    def _ensure_openai_client(self):
+        import importlib
+        global openai
+        if openai is None:
+            try:
+                openai = importlib.import_module('openai')
+            except Exception as e:
+                raise ImportError('OpenAI 库未安装，请先安装: pip install openai') from e
+        if self.openai_client is None:
+            if not self.openai_config.get('api_key'):
+                raise ValueError('OpenAI API密钥未配置')
             try:
                 self.openai_client = openai.OpenAI(
                     api_key=self.openai_config['api_key'],
                     base_url=self.openai_config.get('base_url')
                 )
-            except TypeError as e:
-                # 如果遇到proxies参数错误，尝试不使用base_url
-                if 'proxies' in str(e):
-                    try:
-                        self.openai_client = openai.OpenAI(
-                            api_key=self.openai_config['api_key']
-                        )
-                    except Exception:
-                        self.openai_client = None
-                else:
-                    self.openai_client = None
-            except Exception:
-                self.openai_client = None
-        
-        # 初始化 Gemini
-        self.gemini_model = None
-        if self.gemini_config.get('api_key') and genai:
+            except Exception as e:
+                raise ValueError('OpenAI 客户端初始化失败') from e
+        return self.openai_client
+
+    def _ensure_siliconflow_client(self):
+        import importlib
+        global openai
+        if openai is None:
             try:
-                # 如果配置了自定义base_url，设置为环境变量
-                if self.gemini_config.get('base_url'):
-                    import os
-                    os.environ['GOOGLE_AI_STUDIO_API_URL'] = self.gemini_config['base_url']
-                
-                genai.configure(api_key=self.gemini_config['api_key'])
-                self.gemini_model = genai.GenerativeModel(
-                    self.gemini_config.get('model', 'gemini-pro')
-                )
-            except Exception:
-                self.gemini_model = None
-                
-        # 初始化 SiliconFlow Client (使用OpenAI兼容接口)
-        self.siliconflow_client = None
-        if self.siliconflow_config.get('api_key'):
+                openai = importlib.import_module('openai')
+            except Exception as e:
+                raise ImportError('OpenAI 兼容库未安装，请先安装: pip install openai') from e
+        if self.siliconflow_client is None:
+            if not self.siliconflow_config.get('api_key'):
+                raise ValueError('SiliconFlow API密钥未配置')
             try:
                 self.siliconflow_client = openai.OpenAI(
                     api_key=self.siliconflow_config['api_key'],
                     base_url=self.siliconflow_config.get('base_url', 'https://api.siliconflow.cn/v1')
                 )
-            except Exception:
-                self.siliconflow_client = None
+            except Exception as e:
+                raise ValueError('SiliconFlow 客户端初始化失败') from e
+        return self.siliconflow_client
+
+    def _ensure_gemini_model(self):
+        import importlib, os
+        global genai
+        if genai is None:
+            try:
+                genai = importlib.import_module('google.generativeai')
+            except Exception as e:
+                raise ImportError('Gemini 库未安装，请先安装: pip install google-generativeai') from e
+        if self.gemini_model is None:
+            if self.gemini_config.get('base_url'):
+                os.environ['GOOGLE_AI_STUDIO_API_URL'] = self.gemini_config['base_url']
+            if not self.gemini_config.get('api_key'):
+                raise ValueError('Gemini API密钥未配置')
+            try:
+                genai.configure(api_key=self.gemini_config['api_key'])
+                self.gemini_model = genai.GenerativeModel(
+                    self.gemini_config.get('model', 'gemini-pro')
+                )
+            except Exception as e:
+                raise ValueError('Gemini 客户端初始化失败') from e
+        return self.gemini_model
 
     def _extract_retry_after(self, exc: Exception) -> Optional[float]:
         """从异常中提取 Retry-After 秒数，如果没有则返回 None"""
@@ -184,13 +203,8 @@ class TextProcessor:
                 'base_url': base_url or 'https://api.siliconflow.cn/v1',
                 'model': model or 'Qwen/Qwen3-Coder-30B-A3B-Instruct'
             }
-            try:
-                self.siliconflow_client = openai.OpenAI(
-                    api_key=api_key,
-                    base_url=self.siliconflow_config['base_url']
-                )
-            except Exception:
-                self.siliconflow_client = None
+            # 懒加载，延后到首次调用再创建客户端
+            self.siliconflow_client = None
                 
         elif provider == 'custom':
             # 自定义选项使用OpenAI兼容接口
@@ -199,16 +213,10 @@ class TextProcessor:
                 'base_url': base_url,
                 'model': model or 'gpt-4'
             }
-            try:
-                self.openai_client = openai.OpenAI(
-                    api_key=api_key,
-                    base_url=base_url if base_url else None
-                )
-                # 标记为运行时自定义提供商
-                self.runtime_custom_provider = True
-            except Exception:
-                self.openai_client = None
-                self.runtime_custom_provider = False
+            # 懒加载，延后到首次调用再创建客户端
+            self.openai_client = None
+            # 标记为运行时自定义提供商
+            self.runtime_custom_provider = True
                 
         elif provider == 'gemini':
             self.gemini_config = {
@@ -216,18 +224,8 @@ class TextProcessor:
                 'base_url': base_url,
                 'model': model or 'gemini-pro'
             }
-            try:
-                # 如果配置了自定义base_url，设置为环境变量
-                if base_url:
-                    import os
-                    os.environ['GOOGLE_AI_STUDIO_API_URL'] = base_url
-                
-                genai.configure(api_key=api_key)
-                self.gemini_model = genai.GenerativeModel(
-                    self.gemini_config['model']
-                )
-            except Exception:
-                self.gemini_model = None
+            # 懒加载，延后到首次调用再创建模型
+            self.gemini_model = None
     
     def get_available_providers(self) -> List[str]:
         """获取可用的服务提供商列表"""
@@ -386,9 +384,8 @@ class TextProcessor:
     def process_with_siliconflow(self, text: str, prompt_template: str,
                                model: Optional[str] = None, max_tokens: Optional[int] = None) -> str:
         """使用SiliconFlow处理文本"""
-        if not self.siliconflow_client:
-            raise ValueError("SiliconFlow API密钥未配置")
-        
+        # 确保客户端已就绪（懒加载）
+        self._ensure_siliconflow_client()
         if not model:
             model = self.siliconflow_config.get('model', 'Qwen/Qwen3-Coder-30B-A3B-Instruct')
         
@@ -416,9 +413,8 @@ class TextProcessor:
     def process_with_openai(self, text: str, prompt_template: str, 
                           model: Optional[str] = None, max_tokens: Optional[int] = None) -> str:
         """使用OpenAI处理文本"""
-        if not self.openai_client:
-            raise ValueError("OpenAI API密钥未配置")
-        
+        # 确保客户端已就绪（懒加载）
+        self._ensure_openai_client()
         if not model:
             model = self.openai_config.get('model', 'gpt-4')
         
@@ -445,6 +441,8 @@ class TextProcessor:
     
     def process_with_gemini(self, text: str, prompt_template: str) -> str:
         """使用Gemini处理文本"""
+        # 确保模型已就绪（懒加载）
+        self._ensure_gemini_model()
         if not self.gemini_config.get('api_key'):
             raise ValueError("Gemini API密钥未配置")
         

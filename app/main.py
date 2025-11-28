@@ -442,6 +442,14 @@ def process_video():
 def get_progress(task_id):
     """获取处理进度"""
     progress = video_processor.get_task_progress(task_id)
+    try:
+        # 仅在调试级别记录详细进度，避免生产环境日志过多
+        logging.debug(
+            f"progress[{task_id}]: status={progress.get('status')} "
+            f"stage={progress.get('progress_stage')} detail={progress.get('progress_detail')}"
+        )
+    except Exception:
+        pass
     if 'error' in progress:
         return safe_json_response(success=False, error=progress['error'])
     

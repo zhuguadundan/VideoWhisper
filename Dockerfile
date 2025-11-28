@@ -13,19 +13,22 @@ LABEL maintainer="VideoWhisper Team"
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
-    APP_VERSION=${APP_VERSION}
+    APP_VERSION=${APP_VERSION} \
+    MALLOC_ARENA_MAX=2
 
 # 设置工作目录
 WORKDIR /app
 
 # 安装系统依赖
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     wget \
     curl \
+    stunnel4 \
     && rm -rf /var/lib/apt/lists/* \
     && ffmpeg -version \
-    && ffprobe -version
+    && ffprobe -version \
+    && (command -v stunnel || command -v stunnel4)
 
 # 复制依赖文件
 COPY requirements.txt .
