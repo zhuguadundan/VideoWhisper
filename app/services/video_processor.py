@@ -16,6 +16,7 @@ from app.services.text_processor import TextProcessor
 from app.services.file_uploader import FileUploader
 from app.config.settings import Config
 from app.utils.helpers import sanitize_filename as utils_sanitize_filename
+from app.utils.webhook_notifier import send_task_completed_webhooks
 
 
 class _TaskStore:
@@ -627,7 +628,17 @@ class VideoProcessor:
             
             # 清理临时文件 - 智能保留最近3次任务的文件
             self._smart_cleanup_temp_files(task_id, audio_path)
-            
+
+            # 任务完成后触发 webhook 通知（失败不影响主流程）
+            try:
+                send_task_completed_webhooks(
+                    task,
+                    base_config=(self.config.get('webhook') or {}),
+                    runtime_config=(api_config.get('webhook') if api_config else None),
+                )
+            except Exception as notify_exc:
+                self.logger.warning(f"[{task_id}] 发送 webhook 通知失败: {notify_exc}")
+
             self.logger.info(f"[{task_id}] 处理完成!")
             
         except Exception as e:
@@ -804,6 +815,17 @@ class VideoProcessor:
 
             # 清理临时文件
             self._smart_cleanup_temp_files(task_id, task.audio_file_path)
+
+            # 任务完成后触发 webhook 通知（失败不影响主流程）
+            try:
+                send_task_completed_webhooks(
+                    task,
+                    base_config=(self.config.get('webhook') or {}),
+                    runtime_config=(api_config.get('webhook') if api_config else None),
+                )
+            except Exception as notify_exc:
+                self.logger.warning(f"[{task_id}] 发送 webhook 通知失败: {notify_exc}")
+
             self.logger.info(f"[{task_id}] 处理完成!")
             return task
 

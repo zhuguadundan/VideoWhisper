@@ -1102,13 +1102,13 @@ function startProgressMonitoring(taskId = null) {
     if (progressInterval) {
         clearInterval(progressInterval);
     }
-    
+
     progressInterval = setInterval(async () => {
         if (!currentTaskId) return;
-        
+
         try {
             const response = await fetch(`/api/progress/${currentTaskId}`);
-            
+
             if (!response.ok) {
                 if (response.status === 404) {
                     showAlert('任务不存在，可能已被删除', 'warning');
@@ -1120,45 +1120,48 @@ function startProgressMonitoring(taskId = null) {
                     return;
                 }
             }
-            
+
             const result = await response.json();
-            
-                if (result.success) {
-                    const data = result.data;
-                    updateProgress(data);
 
-                    const ts = data.translation_status || '';
-                    const isTaskCompleted = data.status === 'completed';
+            if (result.success) {
+                const data = result.data;
+                updateProgress(data);
 
-                    if (isTaskCompleted && ts === 'processing') {
-                        // 任务已完成，但翻译在进行中：继续轮询直到翻译完成
-                        return;
-                    }
+                const ts = data.translation_status || '';
+                const isTaskCompleted = data.status === 'completed';
 
-                    if (isTaskCompleted && ts === 'completed') {
-                        clearInterval(progressInterval);
-                        await loadResults();
-                        return;
-                    }
-
-                    if (isTaskCompleted && !ts) {
-                        // 没有翻译，正常结束
-                        clearInterval(progressInterval);
-                        await loadResults();
-                        return;
-                    }
-
-                    if (data.status === 'failed') {
-                        clearInterval(progressInterval);
-                        let errorMsg = data.error_message || '处理失败';
-                        if (typeof errorMsg === 'string' && /^'?url'?$/.test(errorMsg.trim())) {
-                            errorMsg = '视频信息返回不完整或站点暂不支持，请更换链接或稍后重试';
-                        }
-                        showAlert('处理失败: ' + errorMsg, 'danger');
-                    // API返回失败结果
-                    clearInterval(progressInterval);
-                    showAlert(result.message || result.error || '无法获取进度信息', 'danger');
+                if (isTaskCompleted && ts === 'processing') {
+                    // 任务已完成，但翻译在进行中：继续轮询直到翻译完成
+                    return;
                 }
+
+                if (isTaskCompleted && ts === 'completed') {
+                    clearInterval(progressInterval);
+                    await loadResults();
+                    return;
+                }
+
+                if (isTaskCompleted && !ts) {
+                    // 没有翻译，正常结束
+                    clearInterval(progressInterval);
+                    await loadResults();
+                    return;
+                }
+
+                if (data.status === 'failed') {
+                    clearInterval(progressInterval);
+                    let errorMsg = data.error_message || '处理失败';
+                    if (typeof errorMsg === 'string' && /^'?url'?$/.test(errorMsg.trim())) {
+                        errorMsg = '视频信息返回不完整或站点暂不支持，请更换链接或稍后重试';
+                    }
+                    showAlert('处理失败: ' + errorMsg, 'danger');
+                }
+            } else {
+                // API返回失败结果
+                clearInterval(progressInterval);
+                showAlert(result.message || result.error || '无法获取进度信息', 'danger');
+            }
+
             // 当翻译进行中时，给出轻提示
             if (result.success && result.data.translation_status === 'processing') {
                 console.debug('翻译进行中...');
@@ -1176,6 +1179,7 @@ function startProgressMonitoring(taskId = null) {
     }, 2000);
 }
 
+// 更新进度显示
 // 更新进度显示
 function updateProgress(data) {
     const statusText = document.getElementById('statusText');
@@ -2387,7 +2391,7 @@ ${transcript}
 
 ---
 
-*此笔记由 [VideoWhisper](https://github.com/zhugua/videowhisper) 自动生成*`;
+*此笔记由 [VideoWhisper](https://github.com/zhuguadundan/videowhisper) 自动生成*`;
 }
 
 // 生成Obsidian文件名

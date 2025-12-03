@@ -22,7 +22,17 @@ class APIConfigManager {
                 obsidian_default_folder: document.getElementById('obsidian_default_folder'),
                 obsidian_filename_prefix: document.getElementById('obsidian_filename_prefix'),
                 obsidian_filename_format: document.getElementById('obsidian_filename_format'),
-                obsidian_auto_open: document.getElementById('obsidian_auto_open')
+                obsidian_auto_open: document.getElementById('obsidian_auto_open'),
+                webhook_enabled: document.getElementById('webhook_enabled'),
+                webhook_base_url: document.getElementById('webhook_base_url'),
+                webhook_bark_enabled: document.getElementById('webhook_bark_enabled'),
+                webhook_bark_server: document.getElementById('webhook_bark_server'),
+                webhook_bark_key: document.getElementById('webhook_bark_key'),
+                webhook_bark_group: document.getElementById('webhook_bark_group'),
+                webhook_wecom_enabled: document.getElementById('webhook_wecom_enabled'),
+                webhook_wecom_url: document.getElementById('webhook_wecom_url'),
+                webhook_wecom_mobiles: document.getElementById('webhook_wecom_mobiles'),
+                webhook_wecom_userids: document.getElementById('webhook_wecom_userids')
             };
             
             // 验证所有元素都存在
@@ -55,6 +65,22 @@ class APIConfigManager {
                     filename_prefix: elements.obsidian_filename_prefix.value,
                     filename_format: elements.obsidian_filename_format.value,
                     auto_open: elements.obsidian_auto_open.checked
+                },
+                webhook: {
+                    enabled: elements.webhook_enabled.checked,
+                    base_url: elements.webhook_base_url.value,
+                    bark: {
+                        enabled: elements.webhook_bark_enabled.checked,
+                        server: elements.webhook_bark_server.value,
+                        key: elements.webhook_bark_key.value,
+                        group: elements.webhook_bark_group.value
+                    },
+                    wecom: {
+                        enabled: elements.webhook_wecom_enabled.checked,
+                        webhook_url: elements.webhook_wecom_url.value,
+                        mentioned_mobile_list: this._splitListField(elements.webhook_wecom_mobiles.value),
+                        mentioned_userid_list: this._splitListField(elements.webhook_wecom_userids.value)
+                    }
                 }
             };
             
@@ -134,6 +160,38 @@ class APIConfigManager {
                 document.getElementById('obsidian_auto_open').checked = true;
                 this.updateObsidianStatus('untested', '可选配置');
             }
+
+            // 加载 webhook 配置
+            if (config.webhook) {
+                const wh = config.webhook;
+                document.getElementById('webhook_enabled').checked = !!wh.enabled;
+                document.getElementById('webhook_base_url').value = wh.base_url || '';
+
+                const bark = wh.bark || {};
+                document.getElementById('webhook_bark_enabled').checked = !!bark.enabled;
+                document.getElementById('webhook_bark_server').value = bark.server || '';
+                document.getElementById('webhook_bark_key').value = bark.key || '';
+                document.getElementById('webhook_bark_group').value = bark.group || '';
+
+                const wecom = wh.wecom || {};
+                document.getElementById('webhook_wecom_enabled').checked = !!wecom.enabled;
+                document.getElementById('webhook_wecom_url').value = wecom.webhook_url || '';
+                const mobiles = wecom.mentioned_mobile_list || wecom.mobiles || [];
+                const userids = wecom.mentioned_userid_list || wecom.userids || [];
+                document.getElementById('webhook_wecom_mobiles').value = mobiles.join(', ');
+                document.getElementById('webhook_wecom_userids').value = userids.join(', ');
+            } else {
+                document.getElementById('webhook_enabled').checked = false;
+                document.getElementById('webhook_base_url').value = '';
+                document.getElementById('webhook_bark_enabled').checked = false;
+                document.getElementById('webhook_bark_server').value = '';
+                document.getElementById('webhook_bark_key').value = '';
+                document.getElementById('webhook_bark_group').value = '';
+                document.getElementById('webhook_wecom_enabled').checked = false;
+                document.getElementById('webhook_wecom_url').value = '';
+                document.getElementById('webhook_wecom_mobiles').value = '';
+                document.getElementById('webhook_wecom_userids').value = '';
+            }
             
         } catch (error) {
             console.error('加载配置失败:', error);
@@ -174,6 +232,37 @@ class APIConfigManager {
             console.error('解析配置失败:', error);
             return null;
         }
+    }
+
+    // 将逗号分隔的字符串拆分为去空白的数组
+    _splitListField(raw) {
+        if (!raw) {
+            return [];
+        }
+        return raw
+            .split(',')
+            .map((v) => v.trim())
+            .filter((v) => v.length > 0);
+    }
+
+    // 从表单采集 webhook 配置（不依赖已保存的 localStorage）
+    _collectWebhookConfigFromForm() {
+        return {
+            enabled: document.getElementById('webhook_enabled').checked,
+            base_url: document.getElementById('webhook_base_url').value,
+            bark: {
+                enabled: document.getElementById('webhook_bark_enabled').checked,
+                server: document.getElementById('webhook_bark_server').value,
+                key: document.getElementById('webhook_bark_key').value,
+                group: document.getElementById('webhook_bark_group').value,
+            },
+            wecom: {
+                enabled: document.getElementById('webhook_wecom_enabled').checked,
+                webhook_url: document.getElementById('webhook_wecom_url').value,
+                mentioned_mobile_list: this._splitListField(document.getElementById('webhook_wecom_mobiles').value),
+                mentioned_userid_list: this._splitListField(document.getElementById('webhook_wecom_userids').value),
+            },
+        };
     }
 
     // 测试API连接
@@ -911,6 +1000,41 @@ window.clearConfig = function() {
 
 window.testConnection = function(provider) {
     configManager.testConnection(provider);
+};
+
+window.testWebhookConfig = function() {
+    (async () => {
+        try {
+            const webhook = configManager._collectWebhookConfigFromForm();
+            if (!webhook.enabled) {
+                configManager.showToast('error', '测试失败', '请先勾选“启用任务完成后 webhook 通知”');
+                return;
+            }
+
+            // 简单校验至少配置了一个目标
+            if (!webhook.bark.enabled && !webhook.wecom.enabled) {
+                configManager.showToast('error', '测试失败', '请至少启用 Bark 或 企业微信其中一种通知方式');
+                return;
+            }
+
+            const resp = await fetch('/api/webhook/test', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ webhook })
+            });
+            const result = await resp.json();
+            if (result.success) {
+                configManager.showToast('success', '测试请求已发送', result.message || '请检查 Bark / 企业微信是否收到通知');
+            } else {
+                configManager.showToast('error', '测试失败', result.message || result.error || '服务器未返回成功');
+            }
+        } catch (err) {
+            console.error('测试 Webhook 失败:', err);
+            configManager.showToast('error', '测试失败', '网络错误或服务器异常: ' + (err.message || ''));
+        }
+    })();
 };
 
 window.onProviderChange = function() {

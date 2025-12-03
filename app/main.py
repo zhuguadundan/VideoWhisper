@@ -96,34 +96,33 @@ def get_available_providers():
 @api_error_handler
 def get_video_info():
     """获取视频基本信息（仅用于显示）"""
-    data = request.get_json()
+    # 使用 silent 模式避免 Flask 在 Content-Type 非 JSON 时抛出 415，统一转为参数错误
+    data = request.get_json(silent=True) or {}
     if not data:
         raise ValueError("请求数据不能为空")
-        
+
     video_url = data.get('video_url', '').strip()
     if not video_url:
         raise ValueError("请提供视频URL")
-        
-    try:
-        # SSRF 防护：处理前先校验视频URL
-        allowed_hosts, allow_http, allow_private, enforce_whitelist = get_security_policy()
-        if not is_safe_base_url(
-            video_url,
-            allowed_hosts=allowed_hosts,
-            allow_http=allow_http,
-            allow_private=allow_private,
-            enforce_whitelist=enforce_whitelist,
-        ): 
-            raise ValueError('不安全的视频URL，必须为HTTPS且非内网/本地地址')
-        info = video_downloader.get_video_info(video_url)
-        return safe_json_response(
-            success=True,
-            data=info,
-            message='视频信息获取成功'
-        )
-    except Exception as e:
-        logging.error(f"获取视频信息失败: {str(e)}")
-        raise Exception(f"获取视频信息失败: {str(e)}")
+
+    # SSRF 防护：处理前先校验视频URL
+    allowed_hosts, allow_http, allow_private, enforce_whitelist = get_security_policy()
+    if not is_safe_base_url(
+        video_url,
+        allowed_hosts=allowed_hosts,
+        allow_http=allow_http,
+        allow_private=allow_private,
+        enforce_whitelist=enforce_whitelist,
+    ):
+        # 不安全 URL 作为参数错误交给统一错误处理，返回 400
+        raise ValueError('不安全的视频URL，必须为HTTPS且非内网/本地地址')
+
+    info = video_downloader.get_video_info(video_url)
+    return safe_json_response(
+        success=True,
+        data=info,
+        message='视频信息获取成功'
+    )
 
 @main_bp.route('/api/upload', methods=['POST'])
 @api_error_handler
@@ -377,14 +376,15 @@ def get_upload_config():
 @api_error_handler
 def process_video():
     """处理视频请求 - 简化版，仅音频下载"""
-    data = request.get_json()
+    # 使用 silent 模式统一处理缺少/错误的 JSON 请求体
+    data = request.get_json(silent=True) or {}
     if not data:
         raise ValueError("请求数据不能为空")
-        
+
     video_url = data.get('video_url', '').strip()
     if not video_url:
         raise ValueError("请提供视频URL")
-        
+
     llm_provider = data.get('llm_provider', 'openai')
     api_config = data.get('api_config', {})
     # 校验运行时配置中的 base_url，沿用与测试接口一致的安全策略
@@ -394,7 +394,7 @@ def process_video():
     except Exception as e:
         raise ValueError(str(e))
     youtube_cookies = data.get('youtube_cookies', '')  # 获取 YouTube cookies
-    
+
     # SSRF 防护：处理前先校验视频URL
     allowed_hosts, allow_http, allow_private, enforce_whitelist = get_security_policy()
     if not is_safe_base_url(
@@ -404,6 +404,7 @@ def process_video():
         allow_private=allow_private,
         enforce_whitelist=enforce_whitelist,
     ):
+        # 不安全 URL 作为参数错误交给统一错误处理
         raise ValueError('不安全的视频URL，必须为HTTPS且非内网/本地地址')
 
     # 创建任务（支持 cookies 参数）
@@ -411,7 +412,7 @@ def process_video():
     logging.info(f"创建新任务: {task_id}, URL: {video_url} (仅音频模式)")
     if youtube_cookies:
         logging.info(f"任务 {task_id} 使用了 YouTube cookies")
-    
+
     # 创建带异常处理的处理函数
     def safe_process_video():
         try:
@@ -425,12 +426,12 @@ def process_video():
                 task.error_message = f"处理异常: {str(e)}"
                 video_processor.save_tasks_to_disk()
             logging.exception(f"视频处理线程异常 [{task_id}]: {e}")
-    
+
     # 在后台线程中处理视频
     thread = threading.Thread(target=safe_process_video)
     thread.daemon = True
     thread.start()
-    
+
     return safe_json_response(
         success=True,
         data={'task_id': task_id},
@@ -1120,3 +1121,37 @@ def delete_task_record(task_id):
             return safe_json_response(success=True, message=f'任务 {task_id} 记录已删除（未找到输出目录，可能已被清理）')
     except Exception as e:
         return safe_json_response(success=False, message=str(e))
+
+@main_bp.route('/api/webhook/test', methods=['POST'])
+@api_error_handler
+def test_webhook_notification():
+    """测试 webhook 通知配置。
+
+    请求体示例：{"webhook": { ... 与 config.yaml.webhook 相同结构 ... }}
+    仅用于发送一条测试通知，不依赖现有任务。
+    """
+    data = request.get_json(silent=True) or {}
+    webhook_cfg = data.get('webhook') or {}
+
+    if not webhook_cfg.get('enabled'):
+        raise ValueError('请先在设置中启用 webhook 通知')
+
+    # 构造一个虚拟任务对象，复用现有通知逻辑
+    class DummyTask:
+        def __init__(self) -> None:
+            self.id = 'test-webhook'
+            self.status = 'completed'
+            self.video_url = ''
+            self.original_filename = 'Webhook 测试通知'
+            self.video_info = None
+
+    try:
+        base_cfg = (Config.get_config() or {}).get('webhook') or {}
+    except Exception:
+        base_cfg = {}
+
+    from app.utils.webhook_notifier import send_task_completed_webhooks
+
+    send_task_completed_webhooks(DummyTask(), base_config=base_cfg, runtime_config=webhook_cfg)
+
+    return safe_json_response(success=True, message='已发送测试 webhook 通知（如配置正确，几秒内应在 Bark / 企业微信收到消息）')

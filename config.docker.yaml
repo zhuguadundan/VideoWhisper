@@ -58,6 +58,21 @@ security:
   allow_private_addresses: false
   enforce_api_hosts_whitelist: false
 
+# Webhook 通知配置（可选）
+webhook:
+  enabled: false            # 是否启用任务完成后 webhook 通知
+  base_url: ""              # 可选，用于在通知中拼接访问链接，例如 https://your-domain.com
+  bark:
+    enabled: false          # 是否启用 Bark 推送
+    server: "https://api.day.app"  # Bark 服务器地址
+    key: ""                 # Bark 设备 key
+    group: "VideoWhisper"   # 可选，Bark 分组名称
+  wecom:
+    enabled: false          # 是否启用企业微信机器人通知
+    webhook_url: ""         # 企业微信机器人 webhook 完整 URL
+    mentioned_mobile_list: []  # 可选，被 @ 的手机号列表
+    mentioned_userid_list: []  # 可选，被 @ 的企业微信用户 ID 列表
+
 # Docker环境说明
 # 存储结构：
 # - /app/temp: 临时文件，自动清理保留最近3次任务

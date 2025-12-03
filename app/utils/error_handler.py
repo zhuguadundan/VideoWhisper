@@ -3,6 +3,16 @@ from flask import jsonify, request, g
 import logging
 import traceback
 
+try:
+    import requests
+except ImportError:  # requests 不是硬依赖，缺失时只处理内置 ConnectionError
+    requests = None
+
+if requests is not None:
+    _CONNECTION_ERROR_TYPES = (ConnectionError, requests.exceptions.ConnectionError)
+else:
+    _CONNECTION_ERROR_TYPES = (ConnectionError,)
+
 def api_error_handler(f):
     """API端点统一异常处理装饰器"""
     @wraps(f)
@@ -38,7 +48,7 @@ def api_error_handler(f):
                 'error': '缺少必要参数',
                 'message': friendly or f'缺少参数: {missing}'
             }), 400
-        except ConnectionError as e:
+        except _CONNECTION_ERROR_TYPES as e:
             logging.error(f"ConnectionError in {f.__name__}: {str(e)}")
             return jsonify({
                 'success': False,

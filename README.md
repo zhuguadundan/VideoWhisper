@@ -138,6 +138,13 @@ pytest -q
 - `processing.short_audio_max_retries`：短音频重试次数（默认 3）
 - `processing.retry_sleep_short_seconds` / `retry_sleep_long_seconds`：成功/失败后的轻度退避（默认 1.0/2.0）
 
+### Webhook 通知
+
+- 可在 `config.yaml` / `config.docker.yaml` 中通过 `webhook.enabled: true` 开启任务完成后的 webhook 通知。
+- Bark: 配置 `webhook.bark.server`（默认 `https://api.day.app`）、`webhook.bark.key`（设备 key）、`webhook.bark.group`（可选）。
+- 企业微信: 配置 `webhook.wecom.webhook_url`，可选 `webhook.wecom.mentioned_mobile_list` / `webhook.wecom.mentioned_userid_list`。
+- Web 设置页也提供对应的 webhook 配置项，会通过请求体中的 `api_config.webhook` 覆盖后端默认配置。
+
 ## 🧪 测试
 
 ```bash

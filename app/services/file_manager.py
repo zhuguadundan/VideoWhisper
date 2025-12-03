@@ -122,6 +122,30 @@ class FileManager:
                     logger.error(f'清理任务 {task_id} 文件时出错: {e}')
                 break
 
+    def cleanup_excess_tasks(self):
+        """清理超过 max_temp_tasks 限制的历史任务及其临时文件。
+
+        设计目标：
+        - 仅作为“软限制”保护磁盘空间，失败不应影响主流程。
+        - 依赖已有的 cleanup_task_files 实现，避免重复路径处理逻辑。
+        """
+        try:
+            history = self.get_task_history()
+            if len(history) <= self.max_temp_tasks:
+                return
+            # history 按创建时间倒序，保留前 max_temp_tasks 个，清掉更旧的
+            overflow = history[self.max_temp_tasks :]
+            for entry in overflow:
+                task_id = entry.get('task_id')
+                if not task_id:
+                    continue
+                try:
+                    self.cleanup_task_files(task_id)
+                except Exception as e:
+                    logger.warning(f'清理历史任务 {task_id} 时出错: {e}')
+        except Exception as e:
+            logger.warning(f'执行 cleanup_excess_tasks 时出错: {e}')
+
     def get_task_temp_dir(self, task_id: str) -> str:
         return os.path.join(self.temp_dir, task_id)
 

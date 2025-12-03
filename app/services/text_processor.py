@@ -228,18 +228,39 @@ class TextProcessor:
             self.gemini_model = None
     
     def get_available_providers(self) -> List[str]:
-        """获取可用的服务提供商列表"""
-        available = []
-        if self.siliconflow_client:
-            available.append('siliconflow')
-        if self.openai_client:
-            # 如果是运行时设置的自定义提供商，添加'custom'；否则添加'openai'
-            if self.runtime_custom_provider:
-                available.append('custom')
-            else:
-                available.append('openai')
-        if self.gemini_model:
-            available.append('gemini')
+        """获取可用的服务提供商列表。
+
+        设计原则：
+        - 只在存在有效配置时才认为“可用”，避免误报。
+        - 但不要求客户端已经懒加载完成，否则会形成死锁
+          （没有客户端 -> 不认为可用 -> 永远不去懒加载客户端）。
+        """
+        available: List[str] = []
+
+        # SiliconFlow：配置中有 api_key 或已初始化客户端
+        try:
+            if self.siliconflow_client or (self.siliconflow_config or {}).get('api_key'):
+                available.append('siliconflow')
+        except Exception:
+            pass
+
+        # OpenAI / 自定义兼容：同样基于配置或已初始化客户端
+        try:
+            if self.openai_client or (self.openai_config or {}).get('api_key'):
+                if self.runtime_custom_provider:
+                    available.append('custom')
+                else:
+                    available.append('openai')
+        except Exception:
+            pass
+
+        # Gemini：基于配置或已初始化模型
+        try:
+            if self.gemini_model or (self.gemini_config or {}).get('api_key'):
+                available.append('gemini')
+        except Exception:
+            pass
+
         return available
     
     def is_provider_available(self, provider: str) -> bool:

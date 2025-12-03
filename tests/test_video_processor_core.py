@@ -87,7 +87,12 @@ def test_save_and_load_tasks_round_trip(tmp_path, monkeypatch):
     # 文件应该是一个 JSON 对象或列表，这里只做存在性和基本结构检查
     with open(tasks_file, "r", encoding="utf-8") as f:
         data = json.load(f)
-    assert isinstance(data, dict)
+
+    # 实现当前持久化为任务列表，不强绑定顶层结构为 dict，以保持向后兼容
+    assert isinstance(data, list)
+    assert len(data) >= 1
+    assert isinstance(data[0], dict)
+    assert "id" in data[0]
 
     # 新实例应能从磁盘加载任务
     vp2 = VideoProcessor()
