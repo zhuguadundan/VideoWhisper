@@ -1,6 +1,10 @@
+import contextlib
 import ffmpeg
 import os
 import re
+import shutil
+import subprocess
+import wave
 from typing import Optional
 from app.config.settings import Config
 import logging
@@ -15,6 +19,9 @@ class AudioExtractor:
         self.output_dir = Config.resolve_path(self.config['system']['output_dir'])
         self.audio_format = self.config['system']['audio_format']
         self.sample_rate = self.config['system']['audio_sample_rate']
+
+        # ffmpeg-python 默认使用 cmd='ffmpeg'，这里允许通过环境变量覆盖
+        self.ffmpeg_cmd = os.environ.get("FFMPEG_BINARY") or (shutil.which("ffmpeg") or "ffmpeg")
         
         os.makedirs(self.temp_dir, exist_ok=True)
         os.makedirs(self.output_dir, exist_ok=True)
@@ -62,7 +69,7 @@ class AudioExtractor:
                     ar=self.sample_rate,  # 采样率
                     ac=1  # 单声道
                 )
-                .run(overwrite_output=True)  # 移除y=True，使用overwrite_output=True代替
+                .run(overwrite_output=True, cmd=self.ffmpeg_cmd)  # 移除y=True，使用overwrite_output=True代替
             )
             
             return output_path
@@ -104,7 +111,7 @@ class AudioExtractor:
             else:
                 stream = ffmpeg.output(stream, output_path, ar=sample_rate)
             
-            ffmpeg.run(stream, quiet=True, overwrite_output=True)
+            ffmpeg.run(stream, quiet=True, overwrite_output=True, cmd=self.ffmpeg_cmd)
             return output_path
             
         except ffmpeg.Error as e:
@@ -124,6 +131,36 @@ class AudioExtractor:
         except Exception:
             pass
         return 0.0
+
+
+    def _get_duration_seconds(self, path: str) -> float:
+        try:
+            if str(path).lower().endswith('.wav'):
+                with contextlib.closing(wave.open(path, 'rb')) as wf:
+                    frames = wf.getnframes()
+                    rate = wf.getframerate()
+                    if rate:
+                        return float(frames) / float(rate)
+        except Exception:
+            pass
+
+        try:
+            p = subprocess.run(
+                [self.ffmpeg_cmd, '-i', path],
+                capture_output=True,
+                text=True,
+            )
+            out = (p.stderr or '') + (p.stdout or '')
+            m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", out)
+            if m:
+                h = int(m.group(1))
+                mi = int(m.group(2))
+                s = float(m.group(3))
+                return h * 3600.0 + mi * 60.0 + s
+        except Exception:
+            pass
+
+        return 0.0
     
     def split_audio_by_duration(self, input_path: str, segment_duration: int = 300) -> list:
         """按时长分割音频文件"""
@@ -134,15 +171,10 @@ class AudioExtractor:
             raise FileNotFoundError(f"音频文件不存在: {input_path}")
         
         # 获取音频时长
-        try:
-            logger.debug("开始探测音频信息...")
-            probe = ffmpeg.probe(input_path)
-            duration = self._probe_duration_seconds(probe)
-            logger.debug(f"音频时长: {duration}秒")
-        except Exception as probe_error:
-            logger.error(f"探测音频信息失败: {probe_error}")
-            raise Exception(f"探测音频信息失败: {probe_error}")
-        
+        duration = self._get_duration_seconds(input_path)
+        if duration <= 0:
+            logger.error('duration<=0; ensure ffmpeg is available and the audio file is valid')
+            raise Exception('Unable to determine audio duration; ensure ffmpeg is available and the audio file is valid')
         segments = []
         base_name = os.path.splitext(os.path.basename(input_path))[0]
         logger.debug(f"原始基础文件名: {base_name}")
@@ -167,7 +199,7 @@ class AudioExtractor:
                         ffmpeg
                         .input(input_path, ss=current_time, t=end_time - current_time)
                         .output(segment_path, acodec='pcm_s16le', ar=self.sample_rate, ac=1)
-                        .run(quiet=True, overwrite_output=True)
+                        .run(quiet=True, overwrite_output=True, cmd=self.ffmpeg_cmd)
                     )
                     logger.debug(f"分段 {segment_index} 创建成功")
                     
@@ -201,26 +233,38 @@ class AudioExtractor:
             logger.error(f"音频分割过程失败: {e}")
             logger.error(f"错误类型: {type(e)}")
             raise Exception(f"音频分割失败: {e}")
-    
+
     def get_audio_info(self, audio_path: str) -> dict:
-        """获取音频文件信息"""
         try:
-            probe = ffmpeg.probe(audio_path)
-            audio_stream = next((stream for stream in probe.get('streams', []) 
-                               if stream.get('codec_type') == 'audio'), None)
-            
-            if not audio_stream:
-                raise Exception("无法找到音频流")
-            
+            size = int(os.path.getsize(audio_path)) if os.path.exists(audio_path) else 0
+
+            if str(audio_path).lower().endswith('.wav'):
+                with contextlib.closing(wave.open(audio_path, 'rb')) as wf:
+                    channels = int(wf.getnchannels())
+                    sample_rate = int(wf.getframerate())
+                    frames = int(wf.getnframes())
+                    sampwidth = int(wf.getsampwidth())
+                    duration = float(frames) / float(sample_rate) if sample_rate else 0.0
+                    bitrate = int(sample_rate * channels * sampwidth * 8) if sample_rate else 0
+                    codec = 'pcm_s16le' if sampwidth == 2 else 'wav'
+                    return {
+                        'duration': duration,
+                        'sample_rate': sample_rate,
+                        'channels': channels,
+                        'codec': codec,
+                        'bitrate': bitrate,
+                        'size': size,
+                    }
+
+            duration = self._get_duration_seconds(audio_path)
             return {
-                'duration': self._probe_duration_seconds(probe),
-                'sample_rate': int(audio_stream.get('sample_rate', 0) or 0),
-                'channels': audio_stream.get('channels', 0),
-                'codec': audio_stream.get('codec_name', ''),
-                'bitrate': int((probe.get('format') or {}).get('bit_rate', 0) or 0),
-                'size': int((probe.get('format') or {}).get('size', 0) or 0)
+                'duration': float(duration),
+                'sample_rate': 0,
+                'channels': 0,
+                'codec': '',
+                'bitrate': 0,
+                'size': size,
             }
-            
         except Exception as e:
             raise Exception(f"获取音频信息失败: {e}")
 

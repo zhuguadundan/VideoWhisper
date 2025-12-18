@@ -1,0 +1,101 @@
+# 视频转文本处理系统配置（Windows 桌面版建议配置）
+
+# API配置
+apis:
+  siliconflow:
+    base_url: "https://api.siliconflow.cn/v1"
+    api_key: ""  # 请通过网页设置页面配置
+    model: "FunAudioLLM/SenseVoiceSmall"
+  
+  openai:
+    api_key: ""  # 请通过网页设置页面配置
+    model: "gpt-4"
+    base_url: ""  # 可选
+  
+  gemini:
+    api_key: ""  # 请通过网页设置页面配置
+    base_url: ""  # 可选，留空使用默认地址
+    model: "gemini-pro"
+
+# 系统配置
+system:
+  temp_dir: "./temp"
+  output_dir: "./output"
+  max_file_size: 500  # MB
+  audio_format: "wav"
+  audio_sample_rate: 16000
+
+# 处理参数（可选，均有默认值，按需覆盖）
+processing:
+  long_audio_threshold_seconds: 300      # 超过此时长视为长音频
+  segment_duration_seconds: 300          # 长音频分段长度
+  max_consecutive_failures: 3            # 分段转写连续失败上限
+  short_audio_max_retries: 3             # 短音频重试次数
+  retry_sleep_short_seconds: 1.0         # 成功或轻微退避等待
+  retry_sleep_long_seconds: 2.0          # 失败后的退避等待
+
+# 安全配置（可选）
+security:
+  allowed_api_hosts: []
+  allow_insecure_http: false
+  allow_private_addresses: false
+  enforce_api_hosts_whitelist: false
+
+# Webhook 通知配置（可选）
+webhook:
+  enabled: false
+  base_url: ""
+  bark:
+    enabled: false
+    server: "https://api.day.app"
+    key: ""
+    group: "VideoWhisper"
+  wecom:
+    enabled: false
+    webhook_url: ""
+    mentioned_mobile_list: []
+    mentioned_userid_list: []
+
+# Web服务配置（Windows 桌面版：仅监听本机）
+web:
+  host: "127.0.0.1"
+  port: 5000
+  debug: true
+
+# HTTPS配置（Windows 桌面版默认关闭 HTTPS，需要 Obsidian 等高级场景可手动开启）
+https:
+  enabled: false
+  port: 5443
+  host: "0.0.0.0"
+  auto_generate: true
+  domain: "localhost"
+  country: "CN"
+  state: "Beijing"
+  organization: "VideoWhisper Self-Signed"
+  cert_file: "config/cert.pem"
+  key_file: "config/key.pem"
+
+# 视频下载配置
+downloader:
+  general:
+    format: "best[height<=720]/best"
+    audio_format: "bestaudio/best"
+    quiet: false
+
+# 文件上传配置
+upload:
+  max_upload_size: 500
+  upload_chunk_size: 5
+  allowed_video_formats:
+    - "mp4"
+    - "avi"
+    - "mov"
+    - "mkv"
+    - "webm"
+    - "flv"
+  allowed_audio_formats:
+    - "mp3"
+    - "wav"
+    - "aac"
+    - "m4a"
+    - "ogg"

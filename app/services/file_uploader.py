@@ -314,68 +314,82 @@ class FileUploader:
             }
     
     def _get_media_duration(self, file_path: str, file_type: str) -> float:
-        """获取媒体文件时长（需要安装ffprobe）"""
+        """获取媒体文件时长。
+
+        优先使用 ffprobe（如存在）；Windows 便携版场景下可能不带 ffprobe，则回退解析 `ffmpeg -i` 输出。
+        """
         try:
-            import subprocess
             import json
-            
-            # 使用ffprobe获取媒体信息
-            cmd = [
-                'ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_format',
-                '-show_streams', file_path
-            ]
-            
-            # 首先检查ffprobe是否可用
+            import re
             import shutil
-            if not shutil.which('ffprobe'):
-                logger.warning("ffprobe未安装，无法获取媒体时长")
+            import subprocess
+
+            ffprobe = shutil.which('ffprobe')
+            if ffprobe:
+                cmd = [
+                    ffprobe,
+                    '-v', 'quiet',
+                    '-print_format', 'json',
+                    '-show_format',
+                    '-show_streams',
+                    file_path,
+                ]
+
+                logger.debug(f"正在获取媒体时长(ffprobe): {file_path}")
+                result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+                if result.returncode != 0:
+                    logger.warning(f"ffprobe执行失败，返回码: {result.returncode}")
+                    logger.warning(f"错误输出: {result.stderr}")
+                    return 0.0
+
+                if not (result.stdout or '').strip():
+                    logger.warning("ffprobe返回空输出")
+                    return 0.0
+
+                try:
+                    media_info = json.loads(result.stdout)
+                    logger.debug("ffprobe成功解析媒体信息")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"解析ffprobe输出失败: {e}")
+                    logger.debug(f"ffprobe输出: {result.stdout[:200]}...")
+                    return 0.0
+
+                if 'format' in media_info and 'duration' in media_info['format']:
+                    duration = float(media_info['format']['duration'])
+                    logger.debug(f"从format获取时长: {duration}")
+                    return duration
+
+                if 'streams' in media_info:
+                    for stream in media_info['streams']:
+                        if 'duration' in stream:
+                            duration = float(stream['duration'])
+                            logger.debug(f"从stream获取时长: {duration}")
+                            return duration
+
+                logger.warning("无法从ffprobe输出中获取时长")
                 return 0.0
-            
-            logger.debug(f"正在获取媒体时长: {file_path}")
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-            
-            if result.returncode != 0:
-                logger.warning(f"ffprobe执行失败，返回码: {result.returncode}")
-                logger.warning(f"错误输出: {result.stderr}")
+
+            # Fallback: parse duration from `ffmpeg -i` output
+            ffmpeg_cmd = os.environ.get('FFMPEG_BINARY') or (shutil.which('ffmpeg') or 'ffmpeg')
+            logger.debug(f"正在获取媒体时长(ffmpeg): {file_path}")
+            result = subprocess.run([ffmpeg_cmd, '-i', file_path], capture_output=True, text=True, check=False)
+            out = (result.stderr or '') + (result.stdout or '')
+            m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", out)
+            if not m:
+                logger.warning("无法从ffmpeg输出中解析时长")
                 return 0.0
-            
-            if not result.stdout.strip():
-                logger.warning("ffprobe返回空输出")
-                return 0.0
-            
-            try:
-                media_info = json.loads(result.stdout)
-                logger.debug("ffprobe成功解析媒体信息")
-            except json.JSONDecodeError as e:
-                logger.warning(f"解析ffprobe输出失败: {e}")
-                logger.debug(f"ffprobe输出: {result.stdout[:200]}...")
-                return 0.0
-            
-            # 获取时长
-            if 'format' in media_info and 'duration' in media_info['format']:
-                duration = float(media_info['format']['duration'])
-                logger.debug(f"从format获取时长: {duration}")
-                return duration
-            elif 'streams' in media_info:
-                # 从视频或音频流中获取时长
-                for stream in media_info['streams']:
-                    if 'duration' in stream:
-                        duration = float(stream['duration'])
-                        logger.debug(f"从stream获取时长: {duration}")
-                        return duration
-            
-            logger.warning("无法从媒体信息中获取时长")
-            logger.debug(f"媒体信息: {str(media_info)[:200]}...")
-            return 0.0
-            
-        except ImportError as e:
-            logger.warning(f"导入依赖失败: {e}")
-            return 0.0
+
+            h = int(m.group(1))
+            mi = int(m.group(2))
+            s = float(m.group(3))
+            return h * 3600.0 + mi * 60.0 + s
+
         except Exception as e:
             logger.warning(f"获取媒体时长时发生异常: {e}")
             return 0.0
-    
+
+
     def cleanup_upload_file(self, file_path: str) -> bool:
         """清理上传的文件"""
         try:

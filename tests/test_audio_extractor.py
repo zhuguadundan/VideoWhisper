@@ -1,5 +1,6 @@
 ﻿import os
 import types
+import wave
 
 import app.config.settings as settings
 from app.config.settings import Config
@@ -55,7 +56,7 @@ def test_extract_audio_from_video_and_cleanup(tmp_path, monkeypatch):
             }
             return self
 
-        def run(self, overwrite_output=False, quiet=None):  # noqa: D401
+        def run(self, overwrite_output=False, quiet=None, cmd=None):  # noqa: D401
             # simulate ffmpeg writing the output file
             os.makedirs(os.path.dirname(calls["output"]["out_path"]), exist_ok=True)
             with open(calls["output"]["out_path"], "wb") as f:
@@ -99,7 +100,7 @@ def test_convert_audio_format_uses_target_settings(tmp_path, monkeypatch):
         calls["output"] = {"out_path": out_path, **kwargs}
         return stream
 
-    def fake_run(stream, quiet=None, overwrite_output=None):  # noqa: D401
+    def fake_run(stream, quiet=None, overwrite_output=None, cmd=None):  # noqa: D401
         os.makedirs(os.path.dirname(calls["output"]["out_path"]), exist_ok=True)
         with open(calls["output"]["out_path"], "wb") as f:
             f.write(b"converted")
@@ -152,16 +153,12 @@ def test_split_audio_by_duration_and_get_audio_info(tmp_path, monkeypatch):
     from app.services import audio_extractor as ae_mod
 
     audio_path = tmp_path / "audio.wav"
-    audio_path.write_bytes(b"audio-data")
-
-    def fake_probe(path):  # noqa: D401
-        assert path == str(audio_path)
-        return {
-            "format": {"duration": "10", "bit_rate": "128000", "size": str(len(b"audio-data"))},
-            "streams": [
-                {"codec_type": "audio", "sample_rate": "16000", "channels": 1, "codec_name": "pcm"}
-            ],
-        }
+    # Create a minimal valid WAV (mono, 16-bit, 16kHz, 10s)
+    with wave.open(str(audio_path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(b"\x00\x00" * 16000 * 10)
 
     class DummySegStream:
         def __init__(self, path, ss=None, t=None):  # noqa: D401
@@ -176,13 +173,13 @@ def test_split_audio_by_duration_and_get_audio_info(tmp_path, monkeypatch):
                 f.write(b"segment")
             return self
 
-        def run(self, quiet=None, overwrite_output=None):  # noqa: D401
+        def run(self, quiet=None, overwrite_output=None, cmd=None):  # noqa: D401
             return None
 
     def fake_input(path, ss=None, t=None):  # noqa: D401
         return DummySegStream(path, ss=ss, t=t)
 
-    dummy_ffmpeg = types.SimpleNamespace(probe=fake_probe, input=fake_input)
+    dummy_ffmpeg = types.SimpleNamespace(input=fake_input)
 
     monkeypatch.setattr(ae_mod, "ffmpeg", dummy_ffmpeg)
 
@@ -198,5 +195,5 @@ def test_split_audio_by_duration_and_get_audio_info(tmp_path, monkeypatch):
     assert info["duration"] == 10.0
     assert info["sample_rate"] == 16000
     assert info["channels"] == 1
-    assert info["codec"] == "pcm"
-    assert info["size"] == len(b"audio-data")
+    assert info["codec"] == "pcm_s16le"
+    assert info["size"] == os.path.getsize(audio_path)

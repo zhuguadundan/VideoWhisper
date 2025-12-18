@@ -113,6 +113,20 @@ python run.py
 pytest -q
 ```
 
+### Windows 桌面版（便携免安装）
+
+> 适合完全不想折腾 Python / FFmpeg 的本地用户。
+
+1. 从 Release 下载 `VideoWhisper-win.zip`（或在本地执行 `powershell -ExecutionPolicy Bypass -File win/build-full-win.ps1` 生成）。
+2. 将压缩包解压到任意有写权限的目录（推荐非 `C:\Program Files`，例如桌面或 D 盘目录）。
+3. 进入解压后的 `VideoWhisper-win` 目录，双击 `start_videowhisper.bat`：
+   - 脚本会自动启动 `VideoWhisper.exe`；
+   - 如果检测到 `ffmpeg\ffmpeg.exe`，会自动加入 PATH 并供后端使用；
+   - 简单等待几秒后自动在默认浏览器中打开 `http://127.0.0.1:5000`。
+4. 如浏览器或系统安全策略拦截自动打开链接，可手动在浏览器中输入 `http://127.0.0.1:5000` 访问。
+
+> 提示：Windows 便携版已内置精简 ffmpeg，可直接使用，无需用户额外安装 FFmpeg。
+
 ## 📖 使用指南
 
 1. **配置API密钥**: 访问设置页面配置SiliconFlow密钥

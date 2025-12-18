@@ -45,11 +45,19 @@ Thumbs.db
 # Project specific
 temp/
 output/
+logs/
 *.log
 cookies.txt
 
+# Windows packaging artifacts
+VideoWhisper-win/
+VideoWhisper-win*.zip
+VideoWhisper-win*.7z
+*.spec
+
 # Config files with sensitive data
 config_local.yaml
+config/.secret_key
 
 # SSL certificates and private keys
 *.pem
