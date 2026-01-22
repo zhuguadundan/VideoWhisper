@@ -1,4 +1,120 @@
 // API配置管理
+
+// Backward-compatible helpers for site cookies
+// NOTE: settings.html uses inline onclick="..." handlers, which require functions
+// to be accessible on the global window object.
+window.clearSiteCookies = function clearSiteCookies(site) {
+    try {
+        const s = String(site || '').toLowerCase();
+        if (s === 'youtube') {
+            const el = document.getElementById('youtube_cookies');
+            if (el) el.value = '';
+        } else if (s === 'bilibili') {
+            const el = document.getElementById('bilibili_cookies');
+            if (el) el.value = '';
+        } else {
+            console.warn('Unknown site for clearSiteCookies:', site);
+            return;
+        }
+
+        // Persist immediately if manager is present
+        try {
+            if (window.apiConfigManager && typeof window.apiConfigManager.saveConfig === 'function') {
+                window.apiConfigManager.saveConfig();
+            }
+        } catch (_) {}
+
+        try {
+            if (window.apiConfigManager && typeof window.apiConfigManager.showToast === 'function') {
+                window.apiConfigManager.showToast('warning', '已清除', `已清除 ${site} Cookies`);
+            }
+        } catch (_) {}
+    } catch (e) {
+        console.error('clearSiteCookies failed:', e);
+    }
+}
+
+window.testSiteCookies = function testSiteCookies(site) {
+    const s = String(site || '').toLowerCase();
+
+    // Keep YouTube as lightweight local heuristic for now
+    if (s === 'youtube') {
+        const val = (document.getElementById('youtube_cookies')?.value || '').trim();
+        if (!val) {
+            window.apiConfigManager?.showToast?.('warning', '未配置', '请先粘贴 YouTube Cookies');
+            return;
+        }
+        const ok = /(^|;\s*)(VISITOR_INFO1_LIVE|SAPISID|HSID|SSID|SID)=/i.test(val);
+        window.apiConfigManager?.showToast?.(
+            ok ? 'success' : 'warning',
+            ok ? '看起来已配置' : '可能不完整',
+            ok ? '已检测到常见 YouTube Cookie 字段' : '未检测到常见 YouTube Cookie 字段，但仍可能可用'
+        );
+        return;
+    }
+
+    if (s !== 'bilibili') {
+        console.warn('Unknown site for testSiteCookies:', site);
+        return;
+    }
+
+    const val = (document.getElementById('bilibili_cookies')?.value || '').trim();
+    if (!val) {
+        window.apiConfigManager?.showToast?.('warning', '未配置', '请先粘贴 Bilibili Cookies');
+        return;
+    }
+
+    // Ask user for a BV URL to test against (safer and more accurate)
+    const defaultUrl = 'https://www.bilibili.com/';
+    const testUrl = (prompt('请输入一个用于测试的 Bilibili 视频链接（BV...）。\n建议使用你无法下载 1080P60/4K 的那个视频链接来验证会员权限。', defaultUrl) || '').trim();
+    if (!testUrl) {
+        return;
+    }
+
+    // Explicit confirmation: cookies will be sent to the server instance
+    const okSend = confirm(
+        '即将把你粘贴的 Bilibili Cookies 发送到你部署的 VideoWhisper 服务器，用于请求 B 站验证会员/高画质格式权限。\n\n' +
+        '请确认这是你信任的自部署环境（通常为本机/内网）。\n\n' +
+        '继续执行测试？'
+    );
+    if (!okSend) {
+        return;
+    }
+
+    window.apiConfigManager?.showToast?.('info', '测试中', '正在请求服务器验证 Bilibili Cookies，请稍候...');
+
+    fetch('/api/downloads/test-cookies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ site: 'bilibili', url: testUrl, cookies: val })
+    })
+        .then(r => r.json())
+        .then(resp => {
+            if (!resp || resp.success !== true) {
+                window.apiConfigManager?.showToast?.('error', '测试失败', resp?.message || '请求失败');
+                return;
+            }
+            const data = resp.data || {};
+            if (!data.ok) {
+                window.apiConfigManager?.showToast?.('error', 'Cookies 无效', data.reason || '验证失败');
+                return;
+            }
+            if (data.premium_access) {
+                window.apiConfigManager?.showToast?.('success', '验证成功', '已检测到会员/高画质格式权限（例如 1080P60/4K/HDR 等）');
+            } else {
+                window.apiConfigManager?.showToast?.('warning', '验证通过但未检测到会员格式', data.reason || '可能账号非大会员，或该视频没有会员格式');
+            }
+        })
+        .catch(err => {
+            window.apiConfigManager?.showToast?.('error', '测试失败', err?.message || String(err));
+        });
+}
+
+// Legacy names (kept for compatibility)
+// Legacy names (kept for compatibility)
+window.clearYoutubeCookies = function clearYoutubeCookies() { return window.clearSiteCookies('youtube'); };
+window.testYoutubeCookies = function testYoutubeCookies() { return window.testSiteCookies('youtube'); };
+
 class APIConfigManager {
     constructor() {
         this.storageKey = 'videowhisper_api_config';
@@ -18,6 +134,8 @@ class APIConfigManager {
                 text_processor_base_url: document.getElementById('text_processor_base_url'),
                 text_processor_model: document.getElementById('text_processor_model'),
                 youtube_cookies: document.getElementById('youtube_cookies'),
+                bilibili_cookies: document.getElementById('bilibili_cookies'),
+
                 obsidian_vault_name: document.getElementById('obsidian_vault_name'),
                 obsidian_default_folder: document.getElementById('obsidian_default_folder'),
                 obsidian_filename_prefix: document.getElementById('obsidian_filename_prefix'),
@@ -58,6 +176,9 @@ class APIConfigManager {
                 },
                 youtube: {
                     cookies: elements.youtube_cookies.value
+                },
+                bilibili: {
+                    cookies: elements.bilibili_cookies.value
                 },
                 obsidian: {
                     vault_name: elements.obsidian_vault_name.value,
@@ -125,25 +246,38 @@ class APIConfigManager {
                 this.updateModelPlaceholder('siliconflow');
             }
             
-            // 加载 YouTube cookies（对大文本延迟填充，避免阻塞首屏）
-            if (config.youtube) {
-                const ytEl = document.getElementById('youtube_cookies');
-                const cookies = config.youtube.cookies || '';
-                const defer = (cb) => {
-                    if (typeof window.requestIdleCallback === 'function') {
-                        requestIdleCallback(cb, { timeout: 1500 });
-                    } else {
-                        setTimeout(cb, 0);
-                    }
-                };
-                if (cookies && cookies.length > 4000) {
-                    ytEl.placeholder = `已保存 ${cookies.length} 字节的 Cookies，稍后自动填充...`;
-                    defer(() => { ytEl.value = cookies; });
-                } else {
-                    ytEl.value = cookies;
-                }
-                this.updateYouTubeStatus(cookies ? 'configured' : 'untested');
-            }
+             // 加载站点 cookies（对大文本延迟填充，避免阻塞首屏）
+             const defer = (cb) => {
+                 if (typeof window.requestIdleCallback === 'function') {
+                     requestIdleCallback(cb, { timeout: 1500 });
+                 } else {
+                     setTimeout(cb, 0);
+                 }
+             };
+
+             if (config.youtube) {
+                 const ytEl = document.getElementById('youtube_cookies');
+                 const cookies = (config.youtube.cookies || '').trim();
+                 if (cookies && cookies.length > 4000) {
+                     ytEl.placeholder = `已保存 ${cookies.length} 字节的 Cookies，稍后自动填充...`;
+                     defer(() => { ytEl.value = cookies; });
+                 } else {
+                     ytEl.value = cookies;
+                 }
+                 this.updateYouTubeStatus(cookies ? 'configured' : 'untested');
+             }
+
+             if (config.bilibili) {
+                 const blEl = document.getElementById('bilibili_cookies');
+                 const cookies = (config.bilibili.cookies || '').trim();
+                 if (cookies && cookies.length > 4000) {
+                     blEl.placeholder = `已保存 ${cookies.length} 字节的 Cookies，稍后自动填充...`;
+                     defer(() => { blEl.value = cookies; });
+                 } else {
+                     blEl.value = cookies;
+                 }
+             }
+
             
             // 加载 Obsidian 配置
             if (config.obsidian) {
@@ -437,8 +571,25 @@ class APIConfigManager {
         toast.appendChild(body);
 
         document.body.appendChild(toast);
-        const bsToast = new bootstrap.Toast(toast);
-        bsToast.show();
+
+        // Bootstrap might fail to load (CDN blocked) or be loaded after this script.
+        // Fall back to a simple auto-dismiss toast to avoid breaking the page.
+        try {
+            if (window.bootstrap && typeof window.bootstrap.Toast === 'function') {
+                const bsToast = new window.bootstrap.Toast(toast);
+                bsToast.show();
+            } else {
+                toast.style.display = 'block';
+                setTimeout(() => {
+                    try { toast.remove(); } catch (_) {}
+                }, 3500);
+            }
+        } catch (_) {
+            toast.style.display = 'block';
+            setTimeout(() => {
+                try { toast.remove(); } catch (_) {}
+            }, 3500);
+        }
 
         toast.addEventListener('hidden.bs.toast', () => {
             if (toast.parentNode) toast.parentNode.removeChild(toast);
@@ -447,11 +598,16 @@ class APIConfigManager {
 
     // 更新 YouTube 状态
     updateYouTubeStatus(status, text) {
+        // settings.html does not currently have youtube-status / youtube-status-text elements.
+        // Guard to avoid breaking the entire page init.
         const indicator = document.getElementById('youtube-status');
         const textElement = document.getElementById('youtube-status-text');
-        
+        if (!indicator || !textElement) {
+            return;
+        }
+
         indicator.className = 'status-indicator';
-        
+
         switch (status) {
             case 'configured':
                 indicator.classList.add('status-success');

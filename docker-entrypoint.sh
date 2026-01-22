@@ -120,7 +120,7 @@ cert = /app/config/stunnel.pem
 options = NO_SSLv2
 options = NO_SSLv3
 options = NO_TLSv1
-options = NO_TLSv1.1
+# options = NO_TLSv1.1  # Removed: illegal in newer stunnel/OpenSSL; leaving it breaks HTTPS startup
 STUNNEL
 
   if command -v stunnel >/dev/null 2>&1; then

@@ -25,6 +25,7 @@ webhook:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Dict, Optional
 
 import requests
@@ -34,7 +35,36 @@ logger = logging.getLogger(__name__)
 _DEFAULT_BARK_SERVER = "https://api.day.app"
 
 
-def _merge_dict(base: Optional[Dict[str, Any]], override: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _env_bool(name: str, default: bool = False) -> bool:
+    v = os.environ.get(name)
+    if v is None:
+        return default
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _should_enforce_webhook_url_safety() -> bool:
+    """Optional strict mode for webhook target validation.
+
+    Compatibility-first: default is False.
+    Can be enabled via env ENFORCE_WEBHOOK_URL_SAFETY=true or config.yaml:
+      security:
+        enforce_webhook_url_safety: true
+    """
+
+    if _env_bool("ENFORCE_WEBHOOK_URL_SAFETY", False):
+        return True
+    try:
+        from app.config.settings import Config
+
+        sec = (Config.get_config() or {}).get("security") or {}
+        return bool(sec.get("enforce_webhook_url_safety", False))
+    except Exception:
+        return False
+
+
+def _merge_dict(
+    base: Optional[Dict[str, Any]], override: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
     """Shallow merge with one-level nested dict support.
 
     Values in override win; nested dicts are merged recursively.
@@ -102,7 +132,9 @@ class WebhookNotifier:
         status = getattr(task, "status", "")
         if status != "completed":
             # Keep behaviour explicit: we only notify on completed tasks.
-            logger.debug("skip webhook: task %s status=%s", getattr(task, "id", "?"), status)
+            logger.debug(
+                "skip webhook: task %s status=%s", getattr(task, "id", "?"), status
+            )
             return
 
         cfg = self._config or {}
@@ -119,14 +151,70 @@ class WebhookNotifier:
         bark_cfg = cfg.get("bark") or {}
         wecom_cfg = cfg.get("wecom") or {}
 
+        # Strict mode (opt-in): validate webhook targets using the repo's security policy.
+        # We intentionally do NOT reuse allowed_api_hosts whitelist here (that's for API base_url).
+        if _should_enforce_webhook_url_safety():
+            try:
+                from app.utils.api_guard import get_security_policy, is_safe_base_url
+
+                _allowed_hosts, allow_http, allow_private, _enforce_whitelist = (
+                    get_security_policy()
+                )
+
+                bark_server = str(bark_cfg.get("server") or "").strip()
+                if bark_cfg.get("enabled") and bark_server:
+                    if not is_safe_base_url(
+                        bark_server,
+                        allowed_hosts=[],
+                        allow_http=allow_http,
+                        allow_private=allow_private,
+                        enforce_whitelist=False,
+                    ):
+                        logger.warning(
+                            "skip Bark webhook: unsafe server url under strict mode (%s)",
+                            bark_server,
+                        )
+                        # Disable this provider for this call
+                        bark_cfg = dict(bark_cfg)
+                        bark_cfg["enabled"] = False
+
+                wecom_url = str(wecom_cfg.get("webhook_url") or "").strip()
+                if wecom_cfg.get("enabled") and wecom_url:
+                    if not is_safe_base_url(
+                        wecom_url,
+                        allowed_hosts=[],
+                        allow_http=allow_http,
+                        allow_private=allow_private,
+                        enforce_whitelist=False,
+                    ):
+                        logger.warning(
+                            "skip WeCom webhook: unsafe webhook_url under strict mode",
+                        )
+                        wecom_cfg = dict(wecom_cfg)
+                        wecom_cfg["enabled"] = False
+            except Exception as exc:
+                logger.warning("webhook strict validation failed: %s", exc)
+
         brief = _build_task_brief(task)
         title = bark_cfg.get("title") or "VideoWhisper 任务完成"
 
         if bark_cfg.get("enabled"):
-            self._send_bark(bark_cfg, title=title, body=brief, task_url=task_url, task_id=getattr(task, "id", ""))
+            self._send_bark(
+                bark_cfg,
+                title=title,
+                body=brief,
+                task_url=task_url,
+                task_id=getattr(task, "id", ""),
+            )
 
         if wecom_cfg.get("enabled"):
-            self._send_wecom(wecom_cfg, title=title, body=brief, task_url=task_url, task_id=getattr(task, "id", ""))
+            self._send_wecom(
+                wecom_cfg,
+                title=title,
+                body=brief,
+                task_url=task_url,
+                task_id=getattr(task, "id", ""),
+            )
 
     # Provider specific helpers -------------------------------------------------
 
@@ -149,7 +237,9 @@ class WebhookNotifier:
             logger.warning("Bark webhook enabled but key is empty; skip")
             return
 
-        server = (cfg.get("server") or _DEFAULT_BARK_SERVER).strip() or _DEFAULT_BARK_SERVER
+        server = (
+            cfg.get("server") or _DEFAULT_BARK_SERVER
+        ).strip() or _DEFAULT_BARK_SERVER
         server = server.rstrip("/")
 
         try:
@@ -172,7 +262,10 @@ class WebhookNotifier:
             resp = requests.get(url, params=params, timeout=timeout)
             if resp.status_code >= 400:
                 logger.warning(
-                    "Bark webhook for task %s GET failed: %s %s", task_id, resp.status_code, resp.text[:200]
+                    "Bark webhook for task %s GET failed: %s %s",
+                    task_id,
+                    resp.status_code,
+                    resp.text[:200],
                 )
                 # 尝试兼容自建 bark-server 的 /push 接口
                 try:
@@ -194,7 +287,11 @@ class WebhookNotifier:
                             post_resp.text[:200],
                         )
                 except Exception as exc2:
-                    logger.warning("Bark webhook for task %s POST /push raised error: %s", task_id, exc2)
+                    logger.warning(
+                        "Bark webhook for task %s POST /push raised error: %s",
+                        task_id,
+                        exc2,
+                    )
         except Exception as exc:  # pragma: no cover - failure path is logged only
             logger.warning("Bark webhook for task %s raised error: %s", task_id, exc)
 
@@ -238,7 +335,10 @@ class WebhookNotifier:
             resp = requests.post(webhook_url, json=payload, timeout=timeout)
             if resp.status_code != 200:
                 logger.warning(
-                    "WeCom webhook for task %s failed: %s %s", task_id, resp.status_code, resp.text[:200]
+                    "WeCom webhook for task %s failed: %s %s",
+                    task_id,
+                    resp.status_code,
+                    resp.text[:200],
                 )
         except Exception as exc:  # pragma: no cover - failure path is logged only
             logger.warning("WeCom webhook for task %s raised error: %s", task_id, exc)

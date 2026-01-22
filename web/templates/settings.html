@@ -170,17 +170,17 @@
                         </div>
                     </div>
 
-                    <!-- YouTube Cookies 配置 -->
+                    <!-- Cookies 配置（YouTube / Bilibili） -->
                     <div class="api-section">
                         <h5 class="mb-3">
-                            <i class="fab fa-youtube me-2"></i>YouTube Cookies 配置
-                            <span class="status-indicator status-untested" id="youtube-status"></span>
-                            <small class="text-muted" id="youtube-status-text">可选配置</small>
+                            <i class="fas fa-cookie-bite me-2"></i>Cookies 配置（可选）
+                            <span class="status-indicator status-untested" id="cookies-status"></span>
+                            <small class="text-muted" id="cookies-status-text">可选配置</small>
                         </h5>
                         
                         <div class="alert alert-info">
                             <i class="fas fa-circle-info me-2"></i>
-                            <strong>说明：</strong>当遇到"机器人验证"错误时，需要配置 YouTube cookies。cookies 仅保存在浏览器本地，不会上传到服务器。
+                            <strong>说明：</strong>当遇到会员清晰度/风控/机器人验证等限制时，可配置对应站点 cookies。cookies 会保存在浏览器本地（localStorage）。在执行“测试/下载”时，会把 cookies 发送到你自部署的服务器用于请求目标站点。
                         </div>
                         
                         <div class="row g-3">
@@ -188,19 +188,24 @@
                                 <label class="form-label">
                                     YouTube Cookies <small class="text-muted">(从浏览器开发者工具复制)</small>
                                 </label>
-                                <textarea class="form-control" id="youtube_cookies" rows="6" 
-                                          placeholder="粘贴从浏览器开发者工具复制的 YouTube cookies...&#10;格式：name1=value1; name2=value2; ...&#10;&#10;获取方法：&#10;1. 在浏览器中访问 YouTube.com 并登录&#10;2. 按F12打开开发者工具&#10;3. 进入 Application/Storage 标签页&#10;4. 点击 Cookies -> https://www.youtube.com&#10;5. 复制所有 cookie 值"></textarea>
+                                <textarea class="form-control" id="youtube_cookies" rows="5" 
+                                          placeholder="粘贴从浏览器开发者工具复制的 YouTube cookies...&#10;格式：name1=value1; name2=value2; ..."></textarea>
                             </div>
                             <div class="col-12">
-                                <button type="button" class="btn btn-outline-info me-2" onclick="showCookieGuide()">
-                                    <i class="fas fa-circle-question me-2"></i>获取指南
+                                <label class="form-label">
+                                    Bilibili Cookies <small class="text-muted">(从浏览器开发者工具复制)</small>
+                                </label>
+                                <textarea class="form-control" id="bilibili_cookies" rows="5" 
+                                          placeholder="粘贴从浏览器开发者工具复制的 Bilibili cookies...&#10;格式：SESSDATA=...; bili_jct=...; DedeUserID=...; ..."></textarea>
+                            </div>
+                            <div class="col-12">
+                                <button type="button" class="btn btn-outline-warning me-2" onclick="clearSiteCookies('youtube')">
+                                    <i class="fas fa-trash me-2"></i>清除 YouTube Cookies
                                 </button>
-                                <button type="button" class="btn btn-outline-warning me-2" onclick="clearYoutubeCookies()">
-                                    <i class="fas fa-trash me-2"></i>清除 Cookies
+                                <button type="button" class="btn btn-outline-warning me-2" onclick="clearSiteCookies('bilibili')">
+                                    <i class="fas fa-trash me-2"></i>清除 Bilibili Cookies
                                 </button>
-                                <button type="button" class="btn btn-outline-success" onclick="testYoutubeCookies()">
-                                    <i class="fas fa-circle-check me-2"></i>测试 Cookies
-                                </button>
+
                             </div>
                         </div>
                     </div>
@@ -452,6 +457,6 @@
       })();
     </script>
     <script src="{{ url_for('static', filename='js/ui-helpers.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/settings.js') }}?v=20260117-1"></script>
 </body>
 </html>

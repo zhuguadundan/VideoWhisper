@@ -50,6 +50,7 @@ cookies.txt
 
 # Config files with sensitive data
 config_local.yaml
+config/.secret_key
 
 # SSL certificates and private keys
 *.pem

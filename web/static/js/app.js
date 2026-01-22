@@ -850,11 +850,24 @@ function handleUploadFormSubmit(event) {
 
 // 初始化事件监听器
 function initializeEventListeners() {
-    // URL处理表单提交
+    // URL处理表单提交（仅音频）
     const urlForm = document.getElementById('processUrlForm');
     if (urlForm) {
         urlForm.addEventListener('submit', handleUrlFormSubmit);
     }
+
+    // 视频下载表单提交（支持清晰度上限选择）
+    const downloadForm = document.getElementById('downloadVideoForm');
+    if (downloadForm) {
+        downloadForm.addEventListener('submit', handleDownloadVideoSubmit);
+    }
+
+    // 获取清晰度按钮
+    const fetchQualitiesBtn = document.getElementById('fetchQualitiesBtn');
+    if (fetchQualitiesBtn) {
+        fetchQualitiesBtn.addEventListener('click', fetchDownloadQualities);
+    }
+
     
     // 文件上传表单提交
     const uploadForm = document.getElementById('processUploadForm');
@@ -973,6 +986,93 @@ async function translateBilingualHandler() {
     }
 }
 
+async function fetchDownloadQualities() {
+    const videoUrlEl = document.getElementById('downloadVideoUrl');
+    const submitBtn = document.getElementById('submitDownloadBtn');
+    const fetchBtn = document.getElementById('fetchQualitiesBtn');
+    const qualitySel = document.getElementById('downloadQualitySelect');
+
+    if (!videoUrlEl || !qualitySel) return;
+
+    const url = (videoUrlEl.value || '').trim();
+    if (!url) {
+        showAlert('请输入视频URL', 'warning');
+        return;
+    }
+    if (!isValidUrl(url)) {
+        showAlert('请输入有效的URL', 'warning');
+        return;
+    }
+
+    // Avoid double click
+    if (fetchBtn) {
+        fetchBtn.disabled = true;
+        fetchBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>获取中...';
+    }
+    // Only disable submit if a download is currently running.
+    // Fetching qualities should not trigger a download.
+
+    try {
+        const config = (() => {
+            try { return getApiConfig(); } catch (_) { return {}; }
+        })();
+
+        const requestData = { url };
+        if (config && config.youtube && config.youtube.cookies) {
+            requestData.youtube_cookies = config.youtube.cookies;
+        }
+        if (config && config.bilibili && config.bilibili.cookies) {
+            requestData.bilibili_cookies = config.bilibili.cookies;
+        }
+
+        const resp = await fetch('/api/downloads/formats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        });
+
+        const result = await resp.json();
+        if (!result.success) {
+            showToast('error', '获取清晰度失败', result.message || result.error || '');
+            return;
+        }
+
+        const qualities = (result.data && result.data.qualities) ? result.data.qualities : [];
+
+        // Rebuild select options
+        qualitySel.innerHTML = '';
+        const autoOpt = document.createElement('option');
+        autoOpt.value = '';
+        autoOpt.textContent = '自动（最佳）';
+        autoOpt.selected = true;
+        qualitySel.appendChild(autoOpt);
+
+        if (!qualities || qualities.length === 0) {
+            showToast('warning', '未发现清晰度档位', '该链接未返回可用分辨率信息，将使用自动（最佳）下载');
+            return;
+        }
+
+        for (const q of qualities) {
+            const opt = document.createElement('option');
+            opt.value = q.format || '';
+            opt.textContent = q.label || (q.height ? `${q.height}p` : '未知');
+            qualitySel.appendChild(opt);
+        }
+
+        showToast('success', '清晰度已加载', `共 ${qualities.length} 个档位，可选择上限分辨率`);
+
+    } catch (e) {
+        console.error('获取清晰度失败:', e);
+        showToast('error', '获取清晰度失败', e && e.message ? e.message : '网络错误');
+    } finally {
+        if (fetchBtn) {
+            fetchBtn.disabled = false;
+            fetchBtn.innerHTML = '<i class="fas fa-list me-2"></i>获取清晰度';
+        }
+        if (submitBtn) submitBtn.disabled = false;
+    }
+}
+
 // URL验证
 function isValidUrl(string) {
     try {
@@ -980,6 +1080,170 @@ function isValidUrl(string) {
         return true;
     } catch (_) {
         return false;
+    }
+}
+
+    // 视频下载表单提交（支持清晰度上限选择）
+    async function handleDownloadVideoSubmit(e) {
+    e.preventDefault();
+
+    const videoUrlEl = document.getElementById('downloadVideoUrl');
+    const submitBtn = document.getElementById('submitDownloadBtn');
+    const resultArea = document.getElementById('downloadResultArea');
+    const taskIdEl = document.getElementById('downloadTaskId');
+    const progressBar = document.getElementById('downloadProgressBar');
+    const progressText = document.getElementById('downloadProgressText');
+    const statusText = document.getElementById('downloadStatusText');
+    const fileLink = document.getElementById('downloadFileLink');
+
+    if (!videoUrlEl || !submitBtn) return;
+
+    const url = (videoUrlEl.value || '').trim();
+    if (!url) {
+        showAlert('请输入视频URL', 'warning');
+        return;
+    }
+    if (!isValidUrl(url)) {
+        showAlert('请输入有效的URL', 'warning');
+        return;
+    }
+
+    // 避免重复提交
+    if (submitBtn.disabled) return;
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>下载中...';
+    submitBtn.classList.add('loading-shimmer');
+
+    // Reset UI
+    if (resultArea) resultArea.style.display = 'block';
+    if (taskIdEl) taskIdEl.textContent = '';
+    if (progressBar) {
+        progressBar.style.width = '0%';
+        progressBar.setAttribute('aria-valuenow', '0');
+    }
+    if (progressText) progressText.textContent = '0%';
+    if (statusText) statusText.textContent = '';
+    if (fileLink) {
+        fileLink.style.display = 'none';
+        fileLink.href = '#';
+    }
+
+    try {
+        const config = (() => {
+            try { return getApiConfig(); } catch (_) { return {}; }
+        })();
+
+        const requestData = { url };
+
+        // Optional quality selector (upper-bound tier)
+        try {
+            const qualitySel = document.getElementById('downloadQualitySelect');
+            const selectedFormat = qualitySel ? String(qualitySel.value || '').trim() : '';
+            if (selectedFormat) {
+                requestData.format = selectedFormat;
+            }
+        } catch (_) {
+            // ignore
+        }
+        // Site cookies（如果有配置）
+        if (config && config.youtube && config.youtube.cookies) {
+            requestData.youtube_cookies = config.youtube.cookies;
+        }
+        if (config && config.bilibili && config.bilibili.cookies) {
+            requestData.bilibili_cookies = config.bilibili.cookies;
+        }
+
+        const response = await fetch('/api/downloads', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        });
+
+        const result = await response.json();
+        if (!result.success) {
+            showAlert(result.message || result.error || '创建下载任务失败', 'danger');
+            return;
+        }
+
+        const taskId = result.data && result.data.task_id;
+        if (!taskId) {
+            showAlert('创建下载任务失败：缺少任务ID', 'danger');
+            return;
+        }
+
+        if (taskIdEl) taskIdEl.textContent = taskId;
+        if (statusText) statusText.textContent = '任务已创建，开始下载...';
+
+        // Poll progress via existing endpoint
+        const poll = setInterval(async () => {
+            try {
+                const resp = await fetch(`/api/progress/${taskId}`);
+                const pr = await resp.json();
+                if (!pr.success) return;
+
+                const data = pr.data || {};
+                const pct = typeof data.progress === 'number' ? data.progress : 0;
+                const stage = data.progress_stage || '';
+                const detail = data.progress_detail || '';
+
+                if (progressBar) {
+                    progressBar.style.width = `${pct}%`;
+                    progressBar.setAttribute('aria-valuenow', String(pct));
+                }
+                if (progressText) progressText.textContent = `${pct}%`;
+                if (statusText) statusText.textContent = [stage, detail].filter(Boolean).join(' - ');
+
+                if (data.status === 'completed') {
+                    clearInterval(poll);
+                    if (fileLink) {
+                        fileLink.href = `/api/downloads/${taskId}/file`;
+                        fileLink.style.display = 'inline-block';
+                    }
+                    showToast('success', '下载完成', '视频已下载，可点击下载文件');
+                }
+
+                if (data.status === 'failed') {
+                    clearInterval(poll);
+                    showToast('error', '下载失败', data.error_message || data.error || '');
+                }
+            } catch (e2) {
+                // ignore transient errors while polling
+            }
+        }, 1000);
+
+        // Ensure the UI eventually shows the file link even if progress polling misses the terminal state.
+        // This happens when the backend finishes very quickly or the progress endpoint returns cached intermediate state.
+        const maxWaitMs = 5 * 60 * 1000;
+        const startedAt = Date.now();
+        const fallback = setInterval(async () => {
+            if (Date.now() - startedAt > maxWaitMs) {
+                clearInterval(fallback);
+                return;
+            }
+            try {
+                const f = await fetch(`/api/downloads/${taskId}/file`, { method: 'HEAD' });
+                if (f.ok) {
+                    clearInterval(fallback);
+                    clearInterval(poll);
+                    if (fileLink) {
+                        fileLink.href = `/api/downloads/${taskId}/file`;
+                        fileLink.style.display = 'inline-block';
+                    }
+                    showToast('success', '下载完成', '视频已下载，可点击下载文件');
+                }
+            } catch (_) {
+                // ignore
+            }
+        }, 1500);
+
+    } catch (error) {
+        console.error('下载任务创建失败:', error);
+        showAlert('请求失败: ' + (error.message || '网络错误'), 'danger');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-download me-2"></i>开始下载（MP4）';
+        submitBtn.classList.remove('loading-shimmer');
     }
 }
 

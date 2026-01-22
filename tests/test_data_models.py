@@ -1,4 +1,4 @@
-﻿import datetime
+import datetime
 
 from app.models.data_models import (
     VideoInfo,
@@ -65,6 +65,9 @@ def test_processing_task_to_dict_includes_video_info_and_progress():
     assert data["status"] == "processing"
     # created_at serialized as ISO string
     assert data["created_at"].startswith("2024-01-01T12:00:00")
+
+    assert data["audio_file_path"] is None
+    assert data["video_file_path"] is None
 
     # video_info flattened but present
     vi = data["video_info"]

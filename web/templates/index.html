@@ -114,6 +114,77 @@
                                             </button>
                                         </div>
                                     </form>
+
+                                    <!-- 视频下载（MP4） -->
+                                    <div class="card glass-card mt-4">
+                                        <div class="card-body">
+                                            <div class="d-flex align-items-center mb-3">
+                                                <div class="icon-wrapper me-3">
+                                                    <i class="fas fa-download"></i>
+                                                </div>
+                                                <div>
+                                                    <h6 class="mb-1">视频下载（MP4）</h6>
+                                                    <p class="text-muted mb-0 small">下载视频到本地 output/，支持 YouTube / Bilibili</p>
+                                                </div>
+                                            </div>
+
+                                            <form id="downloadVideoForm">
+                                                <div class="row g-3">
+                                                    <div class="col-lg-8">
+                                                        <div class="form-floating">
+                                                            <input type="url" class="form-control form-control-modern" id="downloadVideoUrl"
+                                                                   placeholder="请输入YouTube、Bilibili等视频链接" required>
+                                                            <label for="downloadVideoUrl">
+                                                                <i class="fas fa-link me-2"></i>视频链接
+                                                            </label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-lg-4">
+                                                        <div class="d-flex gap-2">
+                                                            <button type="button" class="btn btn-outline-primary btn-modern w-100" id="fetchQualitiesBtn">
+                                                                <i class="fas fa-list me-2"></i>
+                                                                获取清晰度
+                                                            </button>
+                                                            <button type="submit" class="btn btn-primary btn-modern bounce-in w-100" id="submitDownloadBtn">
+                                                                <i class="fas fa-download me-2"></i>
+                                                                开始下载
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-12">
+                                                        <div class="form-floating">
+                                                            <select class="form-select form-control-modern" id="downloadQualitySelect">
+                                                                <option value="" selected>自动（最佳）</option>
+                                                            </select>
+                                                            <label for="downloadQualitySelect">
+                                                                <i class="fas fa-sliders me-2"></i>清晰度（上限）
+                                                            </label>
+                                                        </div>
+                                                        <div class="form-text mt-2">
+                                                            选择“上限清晰度”后，将下载不超过该分辨率的最佳画质（容器可能为 mp4/webm/mkv）。
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </form>
+
+                                            <div id="downloadResultArea" class="mt-3" style="display: none;">
+                                                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                                    <small class="text-muted">任务ID：<span id="downloadTaskId"></span></small>
+                                                    <a id="downloadFileLink" class="btn btn-success btn-modern btn-sm" href="#" style="display: none;">
+                                                        <i class="fas fa-file-download me-1"></i>下载文件
+                                                    </a>
+                                                </div>
+                                                <div class="progress mt-2">
+                                                    <div class="progress-bar" id="downloadProgressBar" role="progressbar"
+                                                         style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                                                </div>
+                                                <div class="d-flex justify-content-between mt-1">
+                                                    <small id="downloadProgressText" class="text-muted">0%</small>
+                                                    <small id="downloadStatusText" class="text-muted"></small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- 文件上传标签页 -->
