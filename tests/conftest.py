@@ -13,6 +13,7 @@ def _restore_selected_env(monkeypatch):
     keys = [
         "ADMIN_TOKEN",
         "ENFORCE_ADMIN_TOKEN",
+        "ENFORCE_WEBHOOK_URL_SAFETY",
         "FLASK_ENV",
         "HTTPS_ENABLED",
         "ALLOW_INSECURE_HTTP",
@@ -41,7 +42,11 @@ def app_config(tmp_path, monkeypatch):
 
     cfg = {
         "apis": {
-            "siliconflow": {"api_key": "", "base_url": "https://api.siliconflow.cn/v1", "model": "m"},
+            "siliconflow": {
+                "api_key": "",
+                "base_url": "https://api.siliconflow.cn/v1",
+                "model": "m",
+            },
             "openai": {"api_key": "", "base_url": "", "model": "gpt-4"},
             "gemini": {"api_key": "", "base_url": "", "model": "gemini-pro"},
         },
@@ -72,7 +77,9 @@ def app_config(tmp_path, monkeypatch):
             "cert_file": str(tmp_path / "config" / "cert.pem"),
             "key_file": str(tmp_path / "config" / "key.pem"),
         },
-        "downloader": {"general": {"format": "best", "audio_format": "bestaudio", "quiet": True}},
+        "downloader": {
+            "general": {"format": "best", "audio_format": "bestaudio", "quiet": True}
+        },
         "upload": {
             "max_upload_size": 10,
             "upload_chunk_size": 1,

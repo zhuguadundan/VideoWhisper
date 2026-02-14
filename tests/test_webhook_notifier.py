@@ -37,7 +37,11 @@ def test_noop_when_not_completed(monkeypatch):
     monkeypatch.setattr("app.utils.webhook_notifier.requests.post", fake_post)
 
     task = _DummyTask(status="processing")
-    cfg = {"enabled": True, "bark": {"enabled": True, "key": "k"}, "wecom": {"enabled": True, "webhook_url": "https://wx.example"}}
+    cfg = {
+        "enabled": True,
+        "bark": {"enabled": True, "key": "k"},
+        "wecom": {"enabled": True, "webhook_url": "https://wx.example"},
+    }
 
     # Should not raise and should not call any HTTP requests
     send_task_completed_webhooks(task, base_config=cfg, runtime_config=None)
@@ -124,7 +128,9 @@ def test_runtime_config_overrides_base(monkeypatch):
         return DummyResp()
 
     monkeypatch.setattr("app.utils.webhook_notifier.requests.get", fake_get)
-    monkeypatch.setattr("app.utils.webhook_notifier.requests.post", lambda *args, **kwargs: DummyResp())
+    monkeypatch.setattr(
+        "app.utils.webhook_notifier.requests.post", lambda *args, **kwargs: DummyResp()
+    )
 
     task = _DummyTask(status="completed")
 
@@ -143,3 +149,42 @@ def test_runtime_config_overrides_base(monkeypatch):
     url = calls["get"][0]["url"]
     assert "runtime-key" in url
     assert "base-key" not in url
+
+
+def test_strict_mode_skips_unsafe_targets_without_http(monkeypatch):
+    """When strict mode is enabled, unsafe webhook targets should be skipped.
+
+    This must not raise and must not perform any outbound HTTP calls.
+    """
+
+    monkeypatch.setenv("ENFORCE_WEBHOOK_URL_SAFETY", "true")
+
+    # Make policy strict for this test regardless of config.
+    monkeypatch.setattr(
+        "app.utils.api_guard.get_security_policy",
+        lambda: ([], False, False, False),
+    )
+
+    called = {"get": 0, "post": 0}
+
+    def fake_get(*args, **kwargs):
+        called["get"] += 1
+        raise AssertionError("requests.get must not be called in strict skip case")
+
+    def fake_post(*args, **kwargs):
+        called["post"] += 1
+        raise AssertionError("requests.post must not be called in strict skip case")
+
+    monkeypatch.setattr("app.utils.webhook_notifier.requests.get", fake_get)
+    monkeypatch.setattr("app.utils.webhook_notifier.requests.post", fake_post)
+
+    task = _DummyTask(status="completed")
+    cfg = {
+        "enabled": True,
+        "bark": {"enabled": True, "server": "http://127.0.0.1:1234", "key": "k"},
+        "wecom": {"enabled": True, "webhook_url": "http://127.0.0.1:5678"},
+    }
+
+    send_task_completed_webhooks(task, base_config=cfg, runtime_config=None)
+    assert called["get"] == 0
+    assert called["post"] == 0
