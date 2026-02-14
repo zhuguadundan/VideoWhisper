@@ -1,0 +1,32 @@
+# video-whisper Configuration Example
+#
+# The script primarily uses CLI arguments and environment variables.
+# This file documents all available options for reference.
+
+# Required: SiliconFlow API Key
+# Set via environment variable (recommended):
+#   export SILICONFLOW_API_KEY=sk-xxxxxxxxxx     # Linux/Mac
+#   set SILICONFLOW_API_KEY=sk-xxxxxxxxxx        # Windows cmd
+#   $env:SILICONFLOW_API_KEY='sk-xxxxxxxxxx'     # PowerShell
+#
+# Or pass via CLI:
+#   python transcribe.py <url> --api-key sk-xxxxxxxxxx
+#
+# Get your key at: https://cloud.siliconflow.cn/
+
+# Speech-to-Text settings
+stt:
+  base_url: "https://api.siliconflow.cn/v1"
+  model: "FunAudioLLM/SenseVoiceSmall"
+
+# LLM settings (for summary generation)
+llm:
+  base_url: "https://api.siliconflow.cn/v1"
+  model: "Qwen/Qwen3-Coder-30B-A3B-Instruct"
+  # Alternative models:
+  #   deepseek-ai/DeepSeek-V3
+  #   Qwen/Qwen2.5-72B-Instruct
+
+# Processing settings
+processing:
+  segment_seconds: 300    # Split audio into 5-minute segments
