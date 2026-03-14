@@ -76,6 +76,7 @@ def test_test_openai_compatible_success_and_empty(monkeypatch):
 
 def test_test_gemini_success(monkeypatch):
     captured = {}
+    monkeypatch.setenv("GOOGLE_AI_STUDIO_API_URL", "https://old.example")
 
     def fake_configure(api_key):  # noqa: D401
         captured["api_key"] = api_key
@@ -108,5 +109,5 @@ def test_test_gemini_success(monkeypatch):
     assert captured["api_key"] == "gem-key"
     assert captured["model"] == "gem-model"
     assert captured["text"] == "Hello"
-    # base_url should be exported via env when provided
-    assert os.environ["GOOGLE_AI_STUDIO_API_URL"] == "https://gem.example"
+    # provider_tester should restore the previous env instead of polluting process state
+    assert os.environ["GOOGLE_AI_STUDIO_API_URL"] == "https://old.example"

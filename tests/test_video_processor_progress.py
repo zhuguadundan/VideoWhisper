@@ -156,3 +156,54 @@ def test_translate_transcript_success_and_failure(tmp_path, monkeypatch):
         assert task2.translation_status == "failed"
         assert task2.translation_ready is False
         assert "翻译失败" in task2.error_message
+
+
+def test_translate_transcript_runtime_config_does_not_mutate_shared_processor(
+    tmp_path, monkeypatch
+):
+    vp = _init_vp(tmp_path, monkeypatch)
+
+    tid = vp.create_task("https://example.com/runtime")
+    task = vp.get_task(tid)
+    task.status = "completed"
+    task.transcript = "runtime transcript"
+
+    original_siliconflow_config = dict(vp.text_processor.siliconflow_config)
+    original_openai_config = dict(vp.text_processor.openai_config)
+    original_runtime_custom_provider = vp.text_processor.runtime_custom_provider
+
+    captured = {}
+
+    def fake_generate(self, text, provider=None):  # noqa: D401
+        captured["text"] = text
+        captured["provider"] = provider
+        captured["siliconflow_config"] = dict(self.siliconflow_config)
+        return "BILINGUAL CONTENT"
+
+    monkeypatch.setattr(
+        type(vp.text_processor),
+        "generate_bilingual_transcript",
+        fake_generate,
+    )
+
+    api_cfg = {
+        "text_processor": {
+            "provider": "siliconflow",
+            "api_key": "runtime-key",
+            "base_url": "https://runtime.example/v1",
+            "model": "runtime-model",
+        }
+    }
+
+    vp.translate_transcript(tid, llm_provider="siliconflow", api_config=api_cfg)
+
+    assert captured["text"] == "runtime transcript"
+    assert captured["provider"] == "siliconflow"
+    assert captured["siliconflow_config"] == {
+        "api_key": "runtime-key",
+        "base_url": "https://runtime.example/v1",
+        "model": "runtime-model",
+    }
+    assert vp.text_processor.siliconflow_config == original_siliconflow_config
+    assert vp.text_processor.openai_config == original_openai_config
+    assert vp.text_processor.runtime_custom_provider == original_runtime_custom_provider

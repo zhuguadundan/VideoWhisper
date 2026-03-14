@@ -1,6 +1,6 @@
 # VideoWhisper - 视频智语 🎥✨
 
-> 当前版本：v3.6.0 | 最后更新：2025-12-5
+> 当前版本：v3.9.0 | 最后更新：2026-3-14
 
 本项目完全依赖硅基流动服务，如未注册请点击下方邀请链接注册可获14元赠金
 https://cloud.siliconflow.cn/i/uy4d8V8Y
@@ -15,11 +15,18 @@ https://cloud.siliconflow.cn/i/uy4d8V8Y
 
 - 🎬 **视频处理**: 支持YouTube\bilibili等主流平台，自动下载转录
 - 🤖 **AI分析**: 集成硅基流动进行智能摘要和内容分析  
+- 🌐 **中英对照**: 一键生成中英句对句对照，原始逐字稿与双语对照分开展示
 - 📁 **文件管理**: 完整的任务历史和文件批量管理
 - ⚙️ **在线配置**: Web界面直接配置API密钥
 - 🐳 **容器部署**: Docker一键部署，简单易用
 
 ## 📈 版本更新
+
+### v3.9.0 (2026-3-14) - 稳定性修复 🚀
+- ✅ 修复同一页面任务完成后再次提交仍被误判为“已有任务在处理”的问题
+- ✅ 原始逐字稿与中英对照彻底分离，翻译结果固定为“上中文、下英文”
+- ✅ `/api/result` 与下载接口补齐双语字段和 `transcript_bilingual` 下载能力
+- ✅ 修复历史任务恢复、分析文件下载、cookies 探测与 SSRF 防护中的一批稳定性问题
 
 ### v3.8.0 (2025-12-5) - webhook通知 🚀
 - ✅ 增加webhook通知功能，视频转录结束触发通知支持企业微信和bark
@@ -117,16 +124,18 @@ pytest -q
 
 1. **配置API密钥**: 访问设置页面配置SiliconFlow密钥
 2. **处理视频**: 输入视频URL，选择AI模型，开始处理
-3. **查看结果**: 自动生成文本转录、智能摘要和分析报告
+3. **查看结果**: 自动生成原始逐字稿、智能摘要和分析报告，可按需生成中英对照
 4. **文件管理**: 在文件页面管理所有处理结果
 
 ## 📁 输出文件
 
 每个处理任务生成的文件：
 
-- **transcript.txt** - 纯净文字转录
-- **summary.md** - AI智能摘要报告  
-- **data.json** - 完整处理数据
+- **transcript_*.md** - 原始逐字稿（Markdown）
+- **transcript_bilingual_*.md** - 中英句对句对照稿
+- **summary_*.md** - AI智能摘要报告
+- **analysis_*.md** - 内容分析结果
+- **data_*.json** - 完整处理数据
 
 ## ⚙️ 可调处理参数（config.yaml）
 
@@ -151,8 +160,9 @@ pytest -q
 ## 🧪 测试
 
 ```bash
-python test_simple.py      # 基础组件测试
-python test_complete.py    # 完整集成测试
+pytest -q
+# 或运行指定用例
+pytest -q tests/test_api_result_and_management.py
 ```
 
 ## 📄 许可证

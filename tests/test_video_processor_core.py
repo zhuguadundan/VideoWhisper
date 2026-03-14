@@ -1,6 +1,7 @@
 import json
 import os
 
+from app.models.data_models import VideoInfo
 from app.services.video_processor import VideoProcessor
 from app.config.settings import Config
 
@@ -80,6 +81,25 @@ def test_save_and_load_tasks_round_trip(tmp_path, monkeypatch):
     task = vp1.get_task(task_id)
     task.status = "completed"
     task.transcript = "hello"
+    task.video_file_path = os.path.join(vp1.output_dir, task_id, "video.mp4")
+    task.progress = 88
+    task.progress_stage = "保存结果"
+    task.progress_detail = "准备写入文件"
+    task.estimated_time = 5
+    task.processed_segments = 3
+    task.total_segments = 4
+    task.transcript_ready = True
+    task.translation_status = "completed"
+    task.translation_ready = True
+    task.ai_response_times = {"transcript": 1.2, "summary": 2.3}
+    task.download_format = "137+140"
+    task.video_info = VideoInfo(
+        title="Loaded Video",
+        url=url,
+        duration=12.0,
+        uploader="tester",
+        description="desc",
+    )
     vp1.save_tasks_to_disk()
 
     tasks_file = os.path.join(vp1.output_dir, "tasks.json")
@@ -101,4 +121,16 @@ def test_save_and_load_tasks_round_trip(tmp_path, monkeypatch):
     assert loaded_task.video_url == url
     assert loaded_task.status == "completed"
     assert loaded_task.transcript == "hello"
-
+    assert loaded_task.video_file_path == task.video_file_path
+    assert loaded_task.progress == 88
+    assert loaded_task.progress_stage == "保存结果"
+    assert loaded_task.progress_detail == "准备写入文件"
+    assert loaded_task.estimated_time == 5
+    assert loaded_task.processed_segments == 3
+    assert loaded_task.total_segments == 4
+    assert loaded_task.transcript_ready is True
+    assert loaded_task.translation_status == "completed"
+    assert loaded_task.translation_ready is True
+    assert loaded_task.ai_response_times == {"transcript": 1.2, "summary": 2.3}
+    assert loaded_task.download_format == "137+140"
+    assert loaded_task.video_info.description == "desc"

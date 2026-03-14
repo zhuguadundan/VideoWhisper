@@ -1,9 +1,16 @@
+import ipaddress
+
 import pytest
 
 from app.utils import api_guard
 
 
-def test_is_safe_base_url_allows_https_public_by_default():
+def test_is_safe_base_url_allows_https_public_by_default(monkeypatch):
+    monkeypatch.setattr(
+        api_guard,
+        "_resolve_host_ips",
+        lambda host: {ipaddress.ip_address("93.184.216.34")},
+    )
     assert api_guard.is_safe_base_url("https://example.com") is True
 
 
@@ -35,6 +42,18 @@ def test_is_safe_base_url_enforces_whitelist():
     )
 
 
+def test_is_safe_base_url_blocks_hostname_resolving_to_private(monkeypatch):
+    monkeypatch.setattr(
+        api_guard,
+        "_resolve_host_ips",
+        lambda host: {ipaddress.ip_address("127.0.0.1")},
+    )
+    assert (
+        api_guard.is_safe_base_url("https://private.example", allow_private=False)
+        is False
+    )
+
+
 def test_validate_runtime_api_config_rejects_unsafe_base_url(monkeypatch):
     """Unsafe base URLs should trigger ValueError."""
 
@@ -59,6 +78,11 @@ def test_validate_runtime_api_config_accepts_safe_urls(monkeypatch):
         return [], True, False, False
 
     monkeypatch.setattr(api_guard, "get_security_policy", fake_policy, raising=False)
+    monkeypatch.setattr(
+        api_guard,
+        "_resolve_host_ips",
+        lambda host: {ipaddress.ip_address("93.184.216.34")},
+    )
 
     api_config = {
         "text_processor": {"base_url": "https://example.com"},
@@ -67,4 +91,3 @@ def test_validate_runtime_api_config_accepts_safe_urls(monkeypatch):
 
     # Should not raise
     api_guard.validate_runtime_api_config(api_config)
-

@@ -45,6 +45,7 @@ main_bp = Blueprint("main", __name__)
 video_processor = VideoProcessor()
 video_downloader = VideoDownloader()
 file_uploader = FileUploader()
+COOKIE_PROBE_TIMEOUT_SECONDS = 20
 
 
 @main_bp.route("/")
@@ -57,6 +58,12 @@ def index():
 def settings():
     """设置页面"""
     return render_template("settings.html")
+
+
+@main_bp.route("/favicon.ico")
+def favicon():
+    """返回站点图标，避免浏览器默认探测产生404。"""
+    return current_app.send_static_file("favicon.svg")
 
 
 # 静默处理 Chrome DevTools 探测请求，避免404噪音日志
@@ -471,18 +478,17 @@ def get_result(task_id):
     if task.status != "completed":
         raise ValueError(f"任务未完成，当前状态: {task.status}")
 
-    # 如果已生成对照逐字稿，优先返回对照版用于前端展示/导入
     transcript_text = task.transcript
+    bilingual_text = ""
     try:
         if getattr(task, "translation_ready", False):
-            # 读取对照版文件内容作为展示
             task_dir = os.path.join(video_processor.output_dir, task_id)
             bilingual_files = glob.glob(
                 os.path.join(task_dir, "transcript_bilingual_*.md")
             )
             if bilingual_files:
                 with open(bilingual_files[0], "r", encoding="utf-8") as f:
-                    transcript_text = f.read()
+                    bilingual_text = f.read()
     except Exception:
         pass
 
@@ -494,8 +500,10 @@ def get_result(task_id):
             "url": task.video_url,
         },
         "transcript": transcript_text,
+        "bilingual_transcript": bilingual_text,
         "summary": task.summary,
         "analysis": task.analysis,
+        "translation_ready": getattr(task, "translation_ready", False),
     }
 
     return safe_json_response(success=True, data=result_data)
@@ -509,24 +517,45 @@ def download_file(task_id, file_type):
         if not task or task.status != "completed":
             return jsonify({"success": False, "message": "任务不存在或未完成"}), 200
 
-        if file_type not in ("transcript", "summary", "analysis", "data"):
+        if file_type not in (
+            "transcript",
+            "transcript_bilingual",
+            "summary",
+            "analysis",
+            "data",
+        ):
             return jsonify({"success": False, "message": "不支持的文件类型"}), 200
 
         task_dir = os.path.join(video_processor.output_dir, task_id)
         if not os.path.exists(task_dir):
             return jsonify({"success": False, "message": "任务目录不存在"}), 200
 
-        # transcript：优先 bilingual
+        # transcript：优先原始逐字稿，兼容旧数据时回退 bilingual
         if file_type == "transcript":
+            transcript_files = [
+                path
+                for path in glob.glob(os.path.join(task_dir, "transcript_*.md"))
+                if "transcript_bilingual_" not in os.path.basename(path)
+            ]
+            if transcript_files:
+                return send_file(transcript_files[0], as_attachment=True)
+            transcript_fallback = os.path.join(task_dir, "transcript.md")
+            if os.path.exists(transcript_fallback):
+                return send_file(transcript_fallback, as_attachment=True)
             bilingual_files = glob.glob(
                 os.path.join(task_dir, "transcript_bilingual_*.md")
             )
             if bilingual_files:
                 return send_file(bilingual_files[0], as_attachment=True)
-            transcript_files = glob.glob(os.path.join(task_dir, "transcript_*.md"))
-            if transcript_files:
-                return send_file(transcript_files[0], as_attachment=True)
             return jsonify({"success": False, "message": "未找到逐字稿文件"}), 200
+
+        if file_type == "transcript_bilingual":
+            bilingual_files = glob.glob(
+                os.path.join(task_dir, "transcript_bilingual_*.md")
+            )
+            if bilingual_files:
+                return send_file(bilingual_files[0], as_attachment=True)
+            return jsonify({"success": False, "message": "未找到中英对照文件"}), 200
 
         # summary/analysis/data
         pattern_map = {
@@ -535,6 +564,22 @@ def download_file(task_id, file_type):
             "data": "data_*.json",
         }
         files = glob.glob(os.path.join(task_dir, pattern_map[file_type]))
+        if (
+            file_type == "analysis"
+            and not files
+            and getattr(task, "analysis", None)
+        ):
+            fallback_path = os.path.join(task_dir, "analysis.md")
+            with open(fallback_path, "w", encoding="utf-8") as f:
+                f.write(video_processor._build_analysis_markdown(task))
+            files = [fallback_path]
+        fallback_map = {
+            "summary": os.path.join(task_dir, "summary.md"),
+            "analysis": os.path.join(task_dir, "analysis.md"),
+            "data": os.path.join(task_dir, "data.json"),
+        }
+        if not files and file_type in fallback_map and os.path.exists(fallback_map[file_type]):
+            files = [fallback_map[file_type]]
         if not files:
             return jsonify({"success": False, "message": "未找到文件"}), 200
         return send_file(files[0], as_attachment=True)
@@ -838,11 +883,32 @@ def test_download_cookies():
       }
     """
 
-    import threading
-
     if not hasattr(test_download_cookies, "_sema"):
         # allow only one probe at a time
         test_download_cookies._sema = threading.BoundedSemaphore(1)  # type: ignore[attr-defined]
+
+    release_lock = threading.Lock()
+    release_state = {"owner": "request"}
+
+    def _release_probe_slot_from_request():
+        with release_lock:
+            if release_state["owner"] != "request":
+                return
+            release_state["owner"] = "done"
+        try:
+            test_download_cookies._sema.release()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    def _release_probe_slot_from_worker():
+        with release_lock:
+            if release_state["owner"] != "worker":
+                return
+            release_state["owner"] = "done"
+        try:
+            test_download_cookies._sema.release()  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
     def _redact_sensitive(obj):
         """Best-effort redaction for logs/errors.
@@ -923,13 +989,13 @@ def test_download_cookies():
                 {"success": False, "message": "仅允许 Bilibili 域名用于测试"}
             ), 400
 
-        # Hard timeout for probe
-        import concurrent.futures
-
         def _probe():
             cookies_domain = ".bilibili.com"
             info = video_processor.video_downloader.get_video_info(
-                url, cookies_str=cookies, cookies_domain=cookies_domain
+                url,
+                cookies_str=cookies,
+                cookies_domain=cookies_domain,
+                include_formats=True,
             )
             formats = info.get("formats") or []
 
@@ -973,22 +1039,42 @@ def test_download_cookies():
                 "has_1080p60": bool(has_1080p60),
             }
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            fut = ex.submit(_probe)
+        probe_result = {}
+        probe_error = {}
+
+        def _probe_runner():
             try:
-                result = fut.result(timeout=20)
-            except concurrent.futures.TimeoutError:
-                return jsonify(
-                    {
-                        "success": True,
-                        "data": {
-                            "site": site,
-                            "ok": False,
-                            "premium_access": False,
-                            "reason": "测试超时（可能触发风控/限流或网络不稳定），请稍后重试",
-                        },
-                    }
-                )
+                probe_result["value"] = _probe()
+            except Exception as exc:
+                probe_error["error"] = exc
+            finally:
+                _release_probe_slot_from_worker()
+
+        probe_thread = threading.Thread(target=_probe_runner, daemon=True)
+        with release_lock:
+            release_state["owner"] = "worker"
+        try:
+            probe_thread.start()
+        except Exception:
+            with release_lock:
+                release_state["owner"] = "request"
+            raise
+        probe_thread.join(COOKIE_PROBE_TIMEOUT_SECONDS)
+        if probe_thread.is_alive():
+            return jsonify(
+                {
+                    "success": True,
+                    "data": {
+                        "site": site,
+                        "ok": False,
+                        "premium_access": False,
+                        "reason": "测试超时（可能触发风控/限流或网络不稳定），请稍后重试",
+                    },
+                }
+            )
+        if "error" in probe_error:
+            raise probe_error["error"]
+        result = probe_result["value"]
 
         return jsonify(
             {
@@ -1031,10 +1117,7 @@ def test_download_cookies():
         )
 
     finally:
-        try:
-            test_download_cookies._sema.release()  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        _release_probe_slot_from_request()
 
 
 @main_bp.route("/api/tasks")
@@ -1314,14 +1397,14 @@ def get_file_info(file_name):
     """获取文件类型信息"""
     file_name_lower = file_name.lower()
 
+    if "transcript" in file_name_lower:
+        if "bilingual" in file_name_lower:
+            return "transcript", "中英对照逐字稿", "transcript"
+        if "timestamp" in file_name_lower:
+            return "transcript", "带时间戳的逐字稿", "transcript"
+        return "transcript", "逐字稿", "transcript"
     if file_name_lower.endswith(".txt"):
-        if "transcript" in file_name_lower:
-            if "timestamp" in file_name_lower:
-                return "transcript", "带时间戳的逐字稿", "transcript"
-            else:
-                return "transcript", "逐字稿", "transcript"
-        else:
-            return "text", "文本文件", "text"
+        return "text", "文本文件", "text"
     elif file_name_lower.endswith(".md"):
         return "summary", "总结报告", "summary"
     elif file_name_lower.endswith(".json"):

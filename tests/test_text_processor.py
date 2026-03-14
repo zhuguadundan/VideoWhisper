@@ -73,3 +73,15 @@ def test_estimate_tokens_and_split_text():
     assert isinstance(segments2, list)
     assert len(segments2) >= 2
 
+
+def test_generate_bilingual_transcript_keeps_chinese_first(monkeypatch):
+    tp = _build_tp_with_configs()
+
+    def fake_process(text, prompt):  # noqa: D401
+        assert "中文在上" in prompt
+        return "Hello world.\n你好，世界。\n\nHow are you?\n你好吗？\n"
+
+    monkeypatch.setattr(tp, "process_with_siliconflow", fake_process)
+
+    result = tp.generate_bilingual_transcript("你好，世界。你好吗？", provider="siliconflow")
+    assert result == "你好，世界。\nHello world.\n\n你好吗？\nHow are you?\n"

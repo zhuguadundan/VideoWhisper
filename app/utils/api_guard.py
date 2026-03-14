@@ -1,4 +1,5 @@
 import os
+import socket
 import ipaddress
 from urllib.parse import urlparse
 
@@ -8,6 +9,38 @@ def _env_bool(name: str, default: bool) -> bool:
     if val is None:
         return default
     return str(val).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _is_private_like_ip(ip_obj: ipaddress._BaseAddress) -> bool:
+    return bool(
+        ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_reserved
+        or ip_obj.is_multicast
+        or ip_obj.is_unspecified
+    )
+
+
+def _resolve_host_ips(host: str) -> set[ipaddress._BaseAddress]:
+    resolved: set[ipaddress._BaseAddress] = set()
+    try:
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        infos = socket.getaddrinfo(host, None)
+
+    for info in infos:
+        sockaddr = info[4] if len(info) > 4 else None
+        if not sockaddr:
+            continue
+        addr = sockaddr[0]
+        if not addr:
+            continue
+        if "%" in addr:
+            addr = addr.split("%", 1)[0]
+        resolved.add(ipaddress.ip_address(addr))
+
+    return resolved
 
 
 def is_safe_base_url(url: str, *,
@@ -27,17 +60,25 @@ def is_safe_base_url(url: str, *,
         host = p.hostname
         if not host:
             return False
+        host = host.lower()
+
+        if enforce_whitelist and allowed_hosts:
+            if not any(host == w or host.endswith("." + w) for w in allowed_hosts):
+                return False
+
         try:
             ip = ipaddress.ip_address(host)
-            if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast) and not allow_private:
+            if _is_private_like_ip(ip) and not allow_private:
                 return False
         except ValueError:
-            if host.lower() in {'localhost'} and not allow_private:
+            if host in {"localhost"} and not allow_private:
                 return False
-        if enforce_whitelist and allowed_hosts:
-            h = host.lower()
-            if not any(h == w or h.endswith('.' + w) for w in allowed_hosts):
-                return False
+            if not allow_private:
+                resolved_ips = _resolve_host_ips(host)
+                if not resolved_ips:
+                    return False
+                if any(_is_private_like_ip(ip_obj) for ip_obj in resolved_ips):
+                    return False
         return True
     except Exception:
         return False

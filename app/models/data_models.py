@@ -82,6 +82,9 @@ class ProcessingTask:
     estimated_time: Optional[int] = None  # 预估剩余时间(秒)
     processed_segments: int = 0  # 已处理的音频段数
     total_segments: int = 0  # 总音频段数
+    transcript_ready: bool = False
+    ai_response_times: Dict[str, float] = field(default_factory=dict)
+    download_format: Optional[str] = None
     # 翻译（对照稿）相关
     translation_status: str = ""  # '', processing, completed, failed
     translation_ready: bool = False
@@ -116,6 +119,11 @@ class ProcessingTask:
             "estimated_time": self.estimated_time,
             "processed_segments": self.processed_segments,
             "total_segments": self.total_segments,
+            "transcript_ready": self.transcript_ready,
+            "ai_response_times": self.ai_response_times,
+            "download_format": self.download_format,
+            "translation_status": self.translation_status,
+            "translation_ready": self.translation_ready,
         }
 
 

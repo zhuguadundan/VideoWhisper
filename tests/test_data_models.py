@@ -56,6 +56,11 @@ def test_processing_task_to_dict_includes_video_info_and_progress():
     task.estimated_time = 10
     task.processed_segments = 2
     task.total_segments = 4
+    task.transcript_ready = True
+    task.ai_response_times = {"transcript": 1.5}
+    task.download_format = "137+140"
+    task.translation_status = "completed"
+    task.translation_ready = True
 
     data = task.to_dict()
 
@@ -86,6 +91,11 @@ def test_processing_task_to_dict_includes_video_info_and_progress():
     assert data["estimated_time"] == 10
     assert data["processed_segments"] == 2
     assert data["total_segments"] == 4
+    assert data["transcript_ready"] is True
+    assert data["ai_response_times"] == {"transcript": 1.5}
+    assert data["download_format"] == "137+140"
+    assert data["translation_status"] == "completed"
+    assert data["translation_ready"] is True
 
 
 def test_upload_task_to_dict_overrides_type_and_adds_upload_fields():

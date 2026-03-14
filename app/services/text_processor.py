@@ -2,15 +2,35 @@ openai = None
 genai = None
 
 from typing import Dict, Any, Optional, List
+from contextlib import contextmanager
 from app.config.settings import Config
 import re
 import json
 import time
 import random
 import logging
+import os
+import threading
 
 # 模块级日志器
 _logger = logging.getLogger(__name__)
+_gemini_lock = threading.Lock()
+
+
+@contextmanager
+def _temporary_google_ai_studio_api_url(base_url: Optional[str]):
+    env_key = "GOOGLE_AI_STUDIO_API_URL"
+    had_original = env_key in os.environ
+    original_value = os.environ.get(env_key)
+    try:
+        if base_url:
+            os.environ[env_key] = base_url
+        yield
+    finally:
+        if had_original:
+            os.environ[env_key] = original_value or ""
+        else:
+            os.environ.pop(env_key, None)
 
 class TextProcessor:
     def __init__(self, openai_config=None, gemini_config=None, siliconflow_config=None):
@@ -92,26 +112,26 @@ class TextProcessor:
         return self.siliconflow_client
 
     def _ensure_gemini_model(self):
-        import importlib, os
+        import importlib
         global genai
         if genai is None:
             try:
                 genai = importlib.import_module('google.generativeai')
             except Exception as e:
                 raise ImportError('Gemini 库未安装，请先安装: pip install google-generativeai') from e
-        if self.gemini_model is None:
-            if self.gemini_config.get('base_url'):
-                os.environ['GOOGLE_AI_STUDIO_API_URL'] = self.gemini_config['base_url']
-            if not self.gemini_config.get('api_key'):
-                raise ValueError('Gemini API密钥未配置')
-            try:
-                genai.configure(api_key=self.gemini_config['api_key'])
-                self.gemini_model = genai.GenerativeModel(
-                    self.gemini_config.get('model', 'gemini-pro')
-                )
-            except Exception as e:
-                raise ValueError('Gemini 客户端初始化失败') from e
-        return self.gemini_model
+        if not self.gemini_config.get('api_key'):
+            raise ValueError('Gemini API密钥未配置')
+        return genai
+
+    def _create_gemini_model(self):
+        self._ensure_gemini_model()
+        try:
+            genai.configure(api_key=self.gemini_config['api_key'])
+            return genai.GenerativeModel(
+                self.gemini_config.get('model', 'gemini-pro')
+            )
+        except Exception as e:
+            raise ValueError('Gemini 客户端初始化失败') from e
 
     def _extract_retry_after(self, exc: Exception) -> Optional[float]:
         """从异常中提取 Retry-After 秒数，如果没有则返回 None"""
@@ -187,15 +207,17 @@ class TextProcessor:
         """设置运行时配置"""
         if not text_processor_config:
             return
-            
+
         provider = text_processor_config.get('provider', 'siliconflow')
         api_key = text_processor_config.get('api_key')
         base_url = text_processor_config.get('base_url')
         model = text_processor_config.get('model')
-        
+
         if not api_key:
             return
-            
+
+        self.runtime_custom_provider = False
+
         # 根据provider更新对应的配置和客户端
         if provider == 'siliconflow':
             self.siliconflow_config = {
@@ -462,16 +484,16 @@ class TextProcessor:
     
     def process_with_gemini(self, text: str, prompt_template: str) -> str:
         """使用Gemini处理文本"""
-        # 确保模型已就绪（懒加载）
-        self._ensure_gemini_model()
-        if not self.gemini_config.get('api_key'):
-            raise ValueError("Gemini API密钥未配置")
-        
         try:
             full_prompt = f"{prompt_template}\n\n文本内容：\n{text}"
-            response = self.gemini_model.generate_content(full_prompt)
+            with _gemini_lock:
+                with _temporary_google_ai_studio_api_url(
+                    self.gemini_config.get('base_url')
+                ):
+                    model = self._create_gemini_model()
+                    response = model.generate_content(full_prompt)
             return response.text.strip()
-            
+
         except Exception as e:
             raise Exception(f"Gemini处理失败: {e}")
     
@@ -601,31 +623,34 @@ class TextProcessor:
         except Exception as e:
             return {"error": f"分析失败: {e}"}
 
-    def generate_bilingual_transcript(self, english_text: str, provider: str = None) -> str:
-        """将英文逐字稿翻译为中英对照（句对句对照：上面中文、下面英文）。"""
+    def generate_bilingual_transcript(self, source_text: str, provider: str = None) -> str:
+        """将逐字稿整理为中英对照（句对句：中文在上、英文在下）。"""
         if not provider or not self.is_provider_available(provider):
             provider = self.get_default_provider()
 
         prompt = (
-            "你将收到一段英文逐字稿，请严格生成【中英对照（句对句）】的 Markdown。\n"
+            "你将收到一段逐字稿，原文可能是中文、英文，或者中英混合。"
+            "请严格生成【中英对照（句对句）】的 Markdown。\n"
             "硬性要求：\n"
-            "1) 每个英文句子下方紧跟一行中文译文（中文在上、英文在下）；\n"
-            "2) 相邻句对之间空一行；\n"
-            "3) 不要省略任何英文句子，英文原文必须原封不动；\n"
-            "4) 不要添加任何额外内容：不得出现‘以下是’、‘这是中文翻译’、‘对照如下’、‘示例如下’、标题（如以#开头）或总结说明；\n"
-            "5) 仅输出对照正文，不要输出任何引言、注释或多余标记。\n\n"
+            "1) 每组严格两行：第一行中文，第二行对应英文；\n"
+            "2) 如果原文是中文：中文行尽量保留原文，只补英文翻译；\n"
+            "3) 如果原文是英文：英文行保留原文，只补中文翻译；\n"
+            "4) 如果原文中英混合：按语义整理成“中文在上、英文在下”的句对句格式；\n"
+            "5) 相邻句对之间空一行；\n"
+            "6) 不要省略任何内容，不要添加标题、说明、前言、总结或任何额外文字；\n"
+            "7) 只输出对照正文。\n\n"
             "格式示例（仅示意格式）：\n"
-            "这是中文翻译。\n"
-            "This is the English sentence.\n\n"
+            "这是中文。\n"
+            "This is English.\n\n"
             "现在开始：\n"
         )
 
         if provider.lower() == 'siliconflow':
-            raw = self.process_with_siliconflow(english_text, prompt)
+            raw = self.process_with_siliconflow(source_text, prompt)
         elif provider.lower() in ('openai', 'custom'):
-            raw = self.process_with_openai(english_text, prompt)
+            raw = self.process_with_openai(source_text, prompt)
         elif provider.lower() == 'gemini':
-            raw = self.process_with_gemini(english_text, prompt)
+            raw = self.process_with_gemini(source_text, prompt)
         else:
             raise ValueError(f"不支持的服务提供商: {provider}")
 
@@ -663,7 +688,46 @@ class TextProcessor:
         while out and out[-1].strip() == '':
             out.pop()
 
+        normalized = []
+        block = []
+
+        def flush_block():
+            if not block:
+                return
+            if (
+                len(block) == 2
+                and self._looks_english(block[0])
+                and self._looks_chinese(block[1])
+            ):
+                normalized.extend([block[1], block[0]])
+            else:
+                normalized.extend(block)
+            normalized.append('')
+
+        for line in out:
+            if line.strip() == '':
+                flush_block()
+                block = []
+                continue
+            block.append(line)
+        flush_block()
+
+        while normalized and normalized[-1].strip() == '':
+            normalized.pop()
+
+        out = normalized
+
         return '\n'.join(out) + ('\n' if out else '')
+
+    def _looks_chinese(self, text: str) -> bool:
+        chinese_count = sum(1 for ch in text if '\u4e00' <= ch <= '\u9fff')
+        ascii_letter_count = sum(1 for ch in text if ch.isascii() and ch.isalpha())
+        return chinese_count > 0 and chinese_count >= ascii_letter_count
+
+    def _looks_english(self, text: str) -> bool:
+        chinese_count = sum(1 for ch in text if '\u4e00' <= ch <= '\u9fff')
+        ascii_letter_count = sum(1 for ch in text if ch.isascii() and ch.isalpha())
+        return ascii_letter_count > 0 and ascii_letter_count > chinese_count
 
 if __name__ == "__main__":
     # 测试代码

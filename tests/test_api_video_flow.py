@@ -1,3 +1,5 @@
+import time
+
 import app.main as main
 
 
@@ -117,3 +119,81 @@ def test_downloads_create_spawns_task(client, monkeypatch):
     data = resp.get_json()
     assert data["success"] is True
     assert data["data"]["task_id"] == "task-dl-1"
+
+
+def test_download_cookies_uses_formats_and_detects_premium(client, monkeypatch):
+    captured = {}
+
+    def fake_get_video_info(
+        url, cookies_str=None, *, cookies_domain=None, include_formats=False
+    ):
+        captured["url"] = url
+        captured["cookies_str"] = cookies_str
+        captured["cookies_domain"] = cookies_domain
+        captured["include_formats"] = include_formats
+        return {
+            "formats": [
+                {
+                    "format_id": "1080p60",
+                    "format_note": "1080P 60",
+                    "fps": 60,
+                    "height": 1080,
+                    "protocol": "https",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        main.video_processor.video_downloader, "get_video_info", fake_get_video_info
+    )
+
+    resp = client.post(
+        "/api/downloads/test-cookies",
+        json={
+            "site": "bilibili",
+            "url": "https://www.bilibili.com/video/BV1xx411c7mD",
+            "cookies": "SESSDATA=abc",
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["data"]["ok"] is True
+    assert data["data"]["premium_access"] is True
+    assert data["data"]["formats_hint"]["has_1080p60"] is True
+    assert captured["include_formats"] is True
+    assert captured["cookies_domain"] == ".bilibili.com"
+
+
+def test_download_cookies_timeout_returns_quickly(client, monkeypatch):
+    def fake_get_video_info(
+        url, cookies_str=None, *, cookies_domain=None, include_formats=False
+    ):
+        time.sleep(0.2)
+        return {"formats": []}
+
+    monkeypatch.setattr(
+        main.video_processor.video_downloader, "get_video_info", fake_get_video_info
+    )
+    monkeypatch.setattr(main, "COOKIE_PROBE_TIMEOUT_SECONDS", 0.01)
+
+    start = time.perf_counter()
+    resp = client.post(
+        "/api/downloads/test-cookies",
+        json={
+            "site": "bilibili",
+            "url": "https://www.bilibili.com/video/BV1xx411c7mD",
+            "cookies": "SESSDATA=abc",
+        },
+    )
+    duration = time.perf_counter() - start
+
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["data"]["ok"] is False
+    assert "测试超时" in data["data"]["reason"]
+    assert duration < 0.15
+
+    time.sleep(0.25)

@@ -25,6 +25,7 @@ MANIFEST
 venv/
 env/
 ENV/
+.venv/
 
 # IDE
 .vscode/
@@ -45,8 +46,15 @@ Thumbs.db
 # Project specific
 temp/
 output/
+logs/
 *.log
 cookies.txt
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+playwright-report/
+test-results/
 
 # Config files with sensitive data
 config_local.yaml

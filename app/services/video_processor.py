@@ -183,6 +183,56 @@ class VideoProcessor:
             filename, default_name="video_task", max_length=100
         )
 
+    def _create_speech_to_text_service(
+        self, api_config: Optional[dict] = None
+    ) -> SpeechToText:
+        runtime_config = ((api_config or {}).get("siliconflow") or {})
+        if not isinstance(self.speech_to_text, SpeechToText):
+            if runtime_config and hasattr(self.speech_to_text, "set_runtime_config"):
+                self.speech_to_text.set_runtime_config(runtime_config)
+            return self.speech_to_text
+        if runtime_config:
+            return SpeechToText(api_config=dict(runtime_config))
+        return SpeechToText()
+
+    def _create_text_processor_service(
+        self, api_config: Optional[dict] = None
+    ) -> TextProcessor:
+        runtime_config = ((api_config or {}).get("text_processor") or {})
+        if not isinstance(self.text_processor, TextProcessor):
+            if runtime_config and hasattr(self.text_processor, "set_runtime_config"):
+                self.text_processor.set_runtime_config(runtime_config)
+            return self.text_processor
+        processor = TextProcessor()
+        if runtime_config and hasattr(processor, "set_runtime_config"):
+            processor.set_runtime_config(runtime_config)
+        return processor
+
+    def _build_common_task_kwargs(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
+        return dict(
+            id=task_data["id"],
+            video_url=task_data.get("video_url", ""),
+            status=task_data.get("status", "failed"),
+            created_at=datetime.fromisoformat(task_data["created_at"]),
+            audio_file_path=task_data.get("audio_file_path"),
+            video_file_path=task_data.get("video_file_path"),
+            transcript=task_data.get("transcript", ""),
+            summary=task_data.get("summary", {}),
+            analysis=task_data.get("analysis", {}),
+            error_message=task_data.get("error_message", ""),
+            progress=task_data.get("progress", 0),
+            progress_stage=task_data.get("progress_stage", "准备中"),
+            progress_detail=task_data.get("progress_detail", ""),
+            estimated_time=task_data.get("estimated_time"),
+            processed_segments=task_data.get("processed_segments", 0),
+            total_segments=task_data.get("total_segments", 0),
+            transcript_ready=task_data.get("transcript_ready", False),
+            ai_response_times=task_data.get("ai_response_times", {}) or {},
+            download_format=task_data.get("download_format"),
+            translation_status=task_data.get("translation_status", ""),
+            translation_ready=task_data.get("translation_ready", False),
+        )
+
     def create_task(
         self,
         video_url: str,
@@ -494,9 +544,14 @@ class VideoProcessor:
         return task
 
     def _step_process_audio_and_transcribe(
-        self, task_id: str, task: ProcessingTask, audio_path: str
+        self,
+        task_id: str,
+        task: ProcessingTask,
+        audio_path: str,
+        speech_to_text: Optional[SpeechToText] = None,
     ):
         """处理音频（获取信息、必要时分段、逐段转写或短音频直接转写），返回(full_text, all_segments, language, audio_info)"""
+        speech_to_text = speech_to_text or self.speech_to_text
         if self._fail_if_cancelled(task_id, task):
             return None, None, None, None
         self.logger.info(f"[{task_id}] 处理音频...")
@@ -547,9 +602,7 @@ class VideoProcessor:
                 task.progress = 40 + int(progress_increment)
                 self.save_tasks_to_disk()
                 try:
-                    segment_result = self.speech_to_text.transcribe_audio(
-                        segment["path"]
-                    )
+                    segment_result = speech_to_text.transcribe_audio(segment["path"])
                     text = segment_result.get("text", "").strip()
                     if not text or len(text) < 3:
                         raise Exception(f"转录文本无效: 长度={len(text)}")
@@ -664,9 +717,7 @@ class VideoProcessor:
                 if self._fail_if_cancelled(task_id, task):
                     return None, None, None, None
                 try:
-                    transcription_result = self.speech_to_text.transcribe_audio(
-                        audio_path
-                    )
+                    transcription_result = speech_to_text.transcribe_audio(audio_path)
                     text = transcription_result.get("text", "").strip()
                     if not text or len(text) < 3:
                         if retry < max_retries - 1:
@@ -699,7 +750,13 @@ class VideoProcessor:
             time.sleep(self.retry_sleep_short)
             return full_text, all_segments, language, audio_info
 
-    def _step_generate_text_outputs(self, task: ProcessingTask, llm_provider: str):
+    def _step_generate_text_outputs(
+        self,
+        task: ProcessingTask,
+        llm_provider: str,
+        text_processor: Optional[TextProcessor] = None,
+    ):
+        text_processor = text_processor or self.text_processor
         # 逐字稿
         if self._is_cancelled(task.id):
             task.status = "failed"
@@ -710,7 +767,7 @@ class VideoProcessor:
         self._update_progress(task, stage="生成逐字稿", detail="使用AI优化文本格式...")
         task.ai_start_time = time.time()
         start_time = time.time()
-        task.transcript = self.text_processor.generate_transcript(
+        task.transcript = text_processor.generate_transcript(
             task.transcription.full_text, provider=llm_provider
         )
         ai_response_time = time.time() - start_time
@@ -733,9 +790,7 @@ class VideoProcessor:
             detail=f"AI正在分析内容并生成摘要... (使用 {llm_provider})",
         )
         start_time = time.time()
-        task.summary = self.text_processor.generate_summary(
-            task.transcript, provider=llm_provider
-        )
+        task.summary = text_processor.generate_summary(task.transcript, provider=llm_provider)
         ai_response_time = time.time() - start_time
         task.ai_response_times["summary"] = ai_response_time
         task.progress = 85
@@ -755,9 +810,7 @@ class VideoProcessor:
             detail=f"提取关键信息和主题... (使用 {llm_provider})",
         )
         start_time = time.time()
-        task.analysis = self.text_processor.analyze_content(
-            task.transcript, provider=llm_provider
-        )
+        task.analysis = text_processor.analyze_content(task.transcript, provider=llm_provider)
         ai_response_time = time.time() - start_time
         task.ai_response_times["analysis"] = ai_response_time
         task.progress = 95
@@ -773,29 +826,20 @@ class VideoProcessor:
             raise ValueError(f"任务不存在: {task_id}")
 
         try:
-            # 如果传入了api_config，临时设置配置
+            speech_to_text = self._create_speech_to_text_service(api_config)
+            text_processor = self._create_text_processor_service(api_config)
+
             if api_config:
                 self.logger.info(f"[{task_id}] 使用前端传递的API配置")
-                # 临时更新speech_to_text和text_processor的配置
-                if hasattr(self.speech_to_text, "set_runtime_config"):
-                    self.speech_to_text.set_runtime_config(
-                        api_config.get("siliconflow", {})
-                    )
-                if hasattr(self.text_processor, "set_runtime_config"):
-                    self.text_processor.set_runtime_config(
-                        api_config.get("text_processor", {})
-                    )
 
             # 检查文本处理器是否有可用的提供商
-            available_providers = self.text_processor.get_available_providers()
+            available_providers = text_processor.get_available_providers()
             has_text_provider = bool(available_providers)
 
             # 如果指定的provider不可用，使用默认provider（仅在有文本处理提供商时）
             if has_text_provider:
-                if not llm_provider or not self.text_processor.is_provider_available(
-                    llm_provider
-                ):
-                    llm_provider = self.text_processor.get_default_provider()
+                if not llm_provider or not text_processor.is_provider_available(llm_provider):
+                    llm_provider = text_processor.get_default_provider()
                     self.logger.info(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
                 else:
                     self.logger.info(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
@@ -826,7 +870,9 @@ class VideoProcessor:
             if self._fail_if_cancelled(task_id, task):
                 return task
             full_text, all_segments, language, audio_info = (
-                self._step_process_audio_and_transcribe(task_id, task, audio_path)
+                self._step_process_audio_and_transcribe(
+                    task_id, task, audio_path, speech_to_text=speech_to_text
+                )
             )
             if full_text is None:
                 return task
@@ -849,7 +895,9 @@ class VideoProcessor:
 
             # 5-7. 文本生成/摘要/分析（若有可用的文本处理提供商）
             if has_text_provider:
-                self._step_generate_text_outputs(task, llm_provider)
+                self._step_generate_text_outputs(
+                    task, llm_provider, text_processor=text_processor
+                )
             else:
                 # 无文本处理提供商：跳过AI润色/摘要/分析，直接使用原始转写文本
                 self.logger.warning(
@@ -919,29 +967,20 @@ class VideoProcessor:
         )
 
         try:
-            # 如果传入了api_config，临时设置配置
+            speech_to_text = self._create_speech_to_text_service(api_config)
+            text_processor = self._create_text_processor_service(api_config)
+
             if api_config:
                 self.logger.info(f"[{task_id}] 使用前端传递的API配置")
-                # 临时更新speech_to_text和text_processor的配置
-                if hasattr(self.speech_to_text, "set_runtime_config"):
-                    self.speech_to_text.set_runtime_config(
-                        api_config.get("siliconflow", {})
-                    )
-                if hasattr(self.text_processor, "set_runtime_config"):
-                    self.text_processor.set_runtime_config(
-                        api_config.get("text_processor", {})
-                    )
 
             # 检查文本处理器是否有可用的提供商
-            available_providers = self.text_processor.get_available_providers()
+            available_providers = text_processor.get_available_providers()
             has_text_provider = bool(available_providers)
 
             # 如果指定的provider不可用，使用默认provider
             if has_text_provider:
-                if not llm_provider or not self.text_processor.is_provider_available(
-                    llm_provider
-                ):
-                    llm_provider = self.text_processor.get_default_provider()
+                if not llm_provider or not text_processor.is_provider_available(llm_provider):
+                    llm_provider = text_processor.get_default_provider()
                     self.logger.info(f"[{task_id}] 使用默认AI提供商: {llm_provider}")
                 else:
                     self.logger.info(f"[{task_id}] 使用指定AI提供商: {llm_provider}")
@@ -1041,7 +1080,7 @@ class VideoProcessor:
 
             # 统一音频处理（分段或短音频）
             result = self._step_process_audio_and_transcribe(
-                task_id, task, task.audio_file_path
+                task_id, task, task.audio_file_path, speech_to_text=speech_to_text
             )
             if result is None:
                 return task
@@ -1067,7 +1106,9 @@ class VideoProcessor:
 
             # 文本生成 / 摘要 / 分析（与 URL 流程一致）
             if has_text_provider:
-                self._step_generate_text_outputs(task, llm_provider)
+                self._step_generate_text_outputs(
+                    task, llm_provider, text_processor=text_processor
+                )
             else:
                 self.logger.warning(
                     f"[{task_id}] 没有可用的AI文本处理服务提供商，仅输出原始转写文本"
@@ -1230,6 +1271,77 @@ class VideoProcessor:
             with open(data_path, "w", encoding="utf-8") as f:
                 json.dump(task.to_dict(), f, ensure_ascii=False, indent=2)
 
+        # 保存内容分析
+        if task.analysis:
+            analysis_content = self._build_analysis_markdown(task)
+            analysis_path = os.path.join(task_dir, f"analysis_{safe_filename_base}.md")
+            try:
+                with open(analysis_path, "w", encoding="utf-8") as f:
+                    f.write(analysis_content)
+            except Exception as e:
+                self.logger.warning(f"保存内容分析失败: {e}")
+                analysis_path = os.path.join(task_dir, "analysis.md")
+                with open(analysis_path, "w", encoding="utf-8") as f:
+                    f.write(analysis_content)
+
+    def _build_analysis_markdown(self, task: ProcessingTask) -> str:
+        """将内容分析结果转换为可下载的 Markdown。"""
+        title = task.video_info.title if task.video_info else "视频内容分析"
+        analysis = task.analysis or {}
+
+        lines = [f"# {title}", ""]
+        url_line = (
+            task.video_info.url
+            if task.video_info and getattr(task.video_info, "url", "")
+            else getattr(task, "video_url", "")
+        )
+        if url_line:
+            lines.append(f"**视频URL:** {url_line}")
+        if task.video_info and task.video_info.uploader:
+            lines.append(f"**UP主:** {task.video_info.uploader}")
+        if task.video_info and task.video_info.duration:
+            lines.append(f"**时长:** {self._format_duration(task.video_info.duration)}")
+        lines.append(f"**处理时间:** {task.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.extend(["", "## 内容分析", ""])
+
+        key_labels = {
+            "content_type": "内容类型",
+            "sentiment": "情感倾向",
+            "language_style": "语言风格",
+            "estimated_difficulty": "难度等级",
+            "target_audience": "目标受众",
+        }
+        for key, label in key_labels.items():
+            value = analysis.get(key)
+            if value:
+                lines.append(f"- **{label}:** {value}")
+
+        topics = analysis.get("main_topics") or []
+        if topics:
+            lines.extend(["", "## 主要主题", ""])
+            for topic in topics:
+                lines.append(f"- {topic}")
+
+        extra_keys = sorted(
+            key for key in analysis.keys() if key not in set(key_labels) | {"main_topics"}
+        )
+        if extra_keys:
+            lines.extend(["", "## 其他字段", ""])
+            for key in extra_keys:
+                value = analysis.get(key)
+                if value in (None, "", [], {}):
+                    continue
+                if isinstance(value, (list, dict)):
+                    lines.append(f"### {key}")
+                    lines.append("```json")
+                    lines.append(json.dumps(value, ensure_ascii=False, indent=2))
+                    lines.append("```")
+                else:
+                    lines.append(f"- **{key}:** {value}")
+
+        lines.append("")
+        return "\n".join(lines)
+
     def _format_duration(self, seconds: float) -> str:
         """格式化时长显示"""
         hours = int(seconds // 3600)
@@ -1299,8 +1411,7 @@ class VideoProcessor:
         if not task:
             raise ValueError(f"任务不存在: {task_id}")
 
-        if api_config and hasattr(self.text_processor, "set_runtime_config"):
-            self.text_processor.set_runtime_config(api_config.get("text_processor", {}))
+        text_processor = self._create_text_processor_service(api_config)
 
         if not task.transcript or not task.transcript.strip():
             raise ValueError("任务尚未生成逐字稿，无法翻译")
@@ -1310,8 +1421,8 @@ class VideoProcessor:
         self.save_tasks_to_disk()
 
         try:
-            provider = llm_provider or self.text_processor.get_default_provider()
-            bilingual = self.text_processor.generate_bilingual_transcript(
+            provider = llm_provider or text_processor.get_default_provider()
+            bilingual = text_processor.generate_bilingual_transcript(
                 task.transcript, provider=provider
             )
             self._save_bilingual_transcript(task, bilingual)
@@ -1361,17 +1472,7 @@ class VideoProcessor:
                             "upload_status" in task_data
                             or "original_filename" in task_data
                         )
-                        common_kwargs = dict(
-                            id=task_data["id"],
-                            video_url=task_data.get("video_url", ""),
-                            status=task_data.get("status", "failed"),
-                            created_at=datetime.fromisoformat(task_data["created_at"]),
-                            transcript=task_data.get("transcript", ""),
-                            summary=task_data.get("summary", {}),
-                            analysis=task_data.get("analysis", {}),
-                            error_message=task_data.get("error_message", ""),
-                            progress=task_data.get("progress", 0),
-                        )
+                        common_kwargs = self._build_common_task_kwargs(task_data)
                         if is_upload:
                             task = UploadTask(
                                 **common_kwargs,
@@ -1395,10 +1496,8 @@ class VideoProcessor:
                                     "upload_error_message", ""
                                 ),
                             )
-                            task.audio_file_path = task_data.get("audio_file_path")
                         else:
                             task = ProcessingTask(**common_kwargs)
-                            task.audio_file_path = task_data.get("audio_file_path")
 
                         # 恢复视频信息
                         if task_data.get("video_info"):
@@ -1408,6 +1507,7 @@ class VideoProcessor:
                                 url=vi.get("url", task_data.get("video_url", "")),
                                 duration=vi.get("duration", 0),
                                 uploader=vi.get("uploader", ""),
+                                description=vi.get("description", ""),
                             )
 
                         self.tasks[task.id] = task

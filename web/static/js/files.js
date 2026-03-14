@@ -164,7 +164,7 @@ class FilesManager {
                 </td>
                 <td>
                     <div class="file-type-icon file-type-${file.file_type}">
-                        ${this.getFileTypeIcon(file.file_type)}
+                        ${this.getFileTypeIcon(file)}
                     </div>
                 </td>
                 <td>
@@ -486,18 +486,25 @@ class FilesManager {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
 
-    getFileTypeIcon(fileType) {
+    getFileTypeIcon(file) {
+        const fileName = (file.file_name || '').toLowerCase();
+        if (fileName.endsWith('.json')) {
+            return 'JSON';
+        }
+        if (fileName.endsWith('.md')) {
+            return 'MD';
+        }
+        if (fileName.endsWith('.txt')) {
+            return 'TXT';
+        }
+
         const icons = {
             video: '<i class="bi bi-play-circle"></i>',
             audio: '<i class="bi bi-music-note"></i>',
-            transcript: 'TXT',
-            summary: 'MD',
-            data: 'JSON',
-            text: 'TXT',
             image: '<i class="bi bi-image"></i>',
             other: '?'
         };
-        return icons[fileType] || icons.other;
+        return icons[file.file_type] || icons.other;
     }
 
     escapeHtml(text) {

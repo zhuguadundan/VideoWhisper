@@ -124,7 +124,8 @@ def test_get_result_completed_with_and_without_translation(tmp_path, client, mon
     assert resp2.status_code == 200
     data2 = resp2.get_json()
     assert data2["success"] is True
-    assert data2["data"]["transcript"] == bilingual_text
+    assert data2["data"]["transcript"] == "original transcript"
+    assert data2["data"]["bilingual_transcript"] == bilingual_text
 
 
 def test_download_file_requires_completed_task_and_supports_transcript(tmp_path, client, monkeypatch):
@@ -143,7 +144,7 @@ def test_download_file_requires_completed_task_and_supports_transcript(tmp_path,
     assert resp2.status_code == 200
     assert resp2.get_json()["success"] is False
 
-    # Happy path: transcript download
+    # Happy path: transcript download prefers original transcript
     task_id = "t-dl"
     task3 = types.SimpleNamespace(
         id=task_id,
@@ -164,16 +165,57 @@ def test_download_file_requires_completed_task_and_supports_transcript(tmp_path,
 
     task_dir = out_dir / task_id
     task_dir.mkdir()
-    # Create a bilingual transcript so it is preferred
+    # Create both original and bilingual transcript
+    original_path = task_dir / "transcript_demo.md"
+    original_path.write_text("original transcript", encoding="utf-8")
     file_path = task_dir / "transcript_bilingual_demo.md"
-    file_path.write_text("content", encoding="utf-8")
+    file_path.write_text("bilingual content", encoding="utf-8")
 
     resp3 = client.get(f"/api/download/{task_id}/transcript")
     assert resp3.status_code == 200
-    # send_file, not JSON
     assert resp3.mimetype == "text/markdown"
+    assert resp3.get_data(as_text=True) == "original transcript"
     cd = resp3.headers.get("Content-Disposition", "")
     assert "filename=" in cd
+
+    resp4 = client.get(f"/api/download/{task_id}/transcript_bilingual")
+    assert resp4.status_code == 200
+    assert resp4.mimetype == "text/markdown"
+    assert resp4.get_data(as_text=True) == "bilingual content"
+
+
+def test_download_file_generates_analysis_for_legacy_task(tmp_path, client, monkeypatch):
+    from app.models.data_models import VideoInfo
+
+    task_id = "t-analysis"
+    task = types.SimpleNamespace(
+        id=task_id,
+        status="completed",
+        video_url="https://example.com/v",
+        video_info=VideoInfo(
+            title="Video Title",
+            url="https://example.com/v",
+            duration=10.0,
+            uploader="uploader",
+            description="",
+        ),
+        analysis={"content_type": "测评", "main_topics": ["主题A", "主题B"]},
+        created_at=main.datetime(2024, 1, 2, 3, 4, 5),
+    )
+    monkeypatch.setattr(main.video_processor, "get_task", lambda tid: task)
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    monkeypatch.setattr(main.video_processor, "output_dir", str(out_dir))
+
+    task_dir = out_dir / task_id
+    task_dir.mkdir()
+
+    resp = client.get(f"/api/download/{task_id}/analysis")
+    assert resp.status_code == 200
+    assert resp.mimetype == "text/markdown"
+    assert "主题A" in resp.get_data(as_text=True)
+    assert (task_dir / "analysis.md").exists()
 
 
 def test_list_tasks_returns_sorted_data(client, monkeypatch):
@@ -232,6 +274,8 @@ def test_list_files_includes_output_and_temp_files(tmp_path, client, monkeypatch
     task_dir.mkdir()
     summary_file = task_dir / "summary_report.md"
     summary_file.write_text("summary", encoding="utf-8")
+    transcript_file = task_dir / "transcript.md"
+    transcript_file.write_text("transcript", encoding="utf-8")
 
     temp_file = temp_dir / "temp_audio.wav"
     temp_file.write_bytes(b"data")
@@ -245,9 +289,19 @@ def test_list_files_includes_output_and_temp_files(tmp_path, client, monkeypatch
     body = resp.get_json()
     assert body["success"] is True
 
-    ids = {f["id"] for f in body["data"]}
-    assert f"{task_id}/summary_report.md" in ids
-    assert "temp/temp_audio.wav" in ids
+    files = {f["id"]: f for f in body["data"]}
+    assert f"{task_id}/summary_report.md" in files
+    assert f"{task_id}/transcript.md" in files
+    assert "temp/temp_audio.wav" in files
+    assert files[f"{task_id}/transcript.md"]["file_type"] == "transcript"
+    assert files[f"{task_id}/transcript.md"]["description"] == "逐字稿"
+
+
+def test_favicon_route_serves_svg_icon(client):
+    resp = client.get("/favicon.ico")
+    assert resp.status_code == 200
+    assert resp.mimetype == "image/svg+xml"
+    assert b"<svg" in resp.data
 
 
 def test_delete_task_files_uses_filemanager_and_updates_tasks(tmp_path, client, monkeypatch):

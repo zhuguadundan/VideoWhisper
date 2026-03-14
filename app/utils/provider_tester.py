@@ -4,6 +4,24 @@
 """
 
 from typing import Tuple, Optional
+from contextlib import contextmanager
+import os
+
+
+@contextmanager
+def _temporary_google_ai_studio_api_url(base_url: Optional[str]):
+    env_key = "GOOGLE_AI_STUDIO_API_URL"
+    had_original = env_key in os.environ
+    original_value = os.environ.get(env_key)
+    try:
+        if base_url:
+            os.environ[env_key] = base_url
+        yield
+    finally:
+        if had_original:
+            os.environ[env_key] = original_value or ""
+        else:
+            os.environ.pop(env_key, None)
 
 
 def test_siliconflow(api_key: str, base_url: Optional[str] = None, model: Optional[str] = None) -> Tuple[bool, str]:
@@ -36,11 +54,9 @@ def test_gemini(api_key: str, base_url: Optional[str] = None, model: Optional[st
     except Exception:
         raise ImportError('Gemini库未安装，请先安装: pip install google-generativeai')
 
-    import os
-    if base_url:
-        os.environ['GOOGLE_AI_STUDIO_API_URL'] = base_url
-    genai.configure(api_key=api_key)
-    mdl = genai.GenerativeModel(model or 'gemini-pro')
-    _ = mdl.generate_content("Hello")
+    with _temporary_google_ai_studio_api_url(base_url):
+        genai.configure(api_key=api_key)
+        mdl = genai.GenerativeModel(model or 'gemini-pro')
+        _ = mdl.generate_content("Hello")
     return True, f'Gemini API连接成功，模型: {model or "gemini-pro"}'
 

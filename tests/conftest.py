@@ -19,6 +19,7 @@ def _restore_selected_env(monkeypatch):
         "ALLOW_INSECURE_HTTP",
         "ALLOW_PRIVATE_ADDRESSES",
         "ALLOWED_API_HOSTS",
+        "GOOGLE_AI_STUDIO_API_URL",
     ]
     original = {k: os.environ.get(k) for k in keys}
 

@@ -1,9 +1,17 @@
 // 全局变量
 let currentTaskId = null;
 let progressInterval = null;
+let currentResultData = null;
 let selectedFile = null;
 let uploadTaskId = null;
 let uploadConfig = null;
+
+function stopProgressMonitoring() {
+    if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+    }
+}
 
 // 主题切换功能
 function initTheme() {
@@ -950,6 +958,14 @@ async function translateBilingualHandler() {
             showAlert('没有可翻译的任务', 'warning');
             return;
         }
+        if (currentResultData && currentResultData.bilingual_transcript) {
+            const bilingualSection = document.getElementById('bilingualSection');
+            if (bilingualSection) {
+                bilingualSection.style.display = 'block';
+                bilingualSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            return;
+        }
         const btn = document.getElementById('translateBilingual');
         const providerSelect = document.getElementById('llmProvider');
         const provider = providerSelect ? providerSelect.value : null;
@@ -1273,7 +1289,7 @@ async function handleUrlFormSubmit(e) {
     }
     
     // 若已有进行中的任务，避免重复提交（部分浏览器扩展/回车可能触发多次）
-    if (progressInterval && currentTaskId) {
+    if (progressInterval) {
         showAlert('已有任务在处理，请等待完成或完成后再提交', 'info');
         return;
     }
@@ -1307,6 +1323,7 @@ async function handleUrlFormSubmit(e) {
         
         if (result.success) {
             currentTaskId = result.data.task_id;
+            currentResultData = null;
             showStatusArea();
             startProgressMonitoring();
             showAlert(result.message, 'success');
@@ -1363,9 +1380,7 @@ function startProgressMonitoring(taskId = null) {
         currentTaskId = taskId;
     }
     console.log(`startProgressMonitoring启动，当前任务ID: ${currentTaskId}`);
-    if (progressInterval) {
-        clearInterval(progressInterval);
-    }
+    stopProgressMonitoring();
 
     progressInterval = setInterval(async () => {
         if (!currentTaskId) return;
@@ -1376,11 +1391,11 @@ function startProgressMonitoring(taskId = null) {
             if (!response.ok) {
                 if (response.status === 404) {
                     showAlert('任务不存在，可能已被删除', 'warning');
-                    clearInterval(progressInterval);
+                    stopProgressMonitoring();
                     return;
                 } else if (response.status >= 500) {
                     showAlert('服务器错误，无法获取进度信息', 'danger');
-                    clearInterval(progressInterval);
+                    stopProgressMonitoring();
                     return;
                 }
             }
@@ -1400,20 +1415,20 @@ function startProgressMonitoring(taskId = null) {
                 }
 
                 if (isTaskCompleted && ts === 'completed') {
-                    clearInterval(progressInterval);
+                    stopProgressMonitoring();
                     await loadResults();
                     return;
                 }
 
                 if (isTaskCompleted && !ts) {
                     // 没有翻译，正常结束
-                    clearInterval(progressInterval);
+                    stopProgressMonitoring();
                     await loadResults();
                     return;
                 }
 
                 if (data.status === 'failed') {
-                    clearInterval(progressInterval);
+                    stopProgressMonitoring();
                     let errorMsg = data.error_message || '处理失败';
                     if (typeof errorMsg === 'string' && /^'?url'?$/.test(errorMsg.trim())) {
                         errorMsg = '视频信息返回不完整或站点暂不支持，请更换链接或稍后重试';
@@ -1422,7 +1437,7 @@ function startProgressMonitoring(taskId = null) {
                 }
             } else {
                 // API返回失败结果
-                clearInterval(progressInterval);
+                stopProgressMonitoring();
                 showAlert(result.message || result.error || '无法获取进度信息', 'danger');
             }
 
@@ -1436,7 +1451,7 @@ function startProgressMonitoring(taskId = null) {
             if (error.name === 'TypeError' && error.message.includes('fetch')) {
                 console.warn('网络连接问题，继续尝试获取进度...');
             } else {
-                clearInterval(progressInterval);
+                stopProgressMonitoring();
                 showAlert('无法连接到服务器，进度监控已停止', 'warning');
             }
         }
@@ -1577,7 +1592,7 @@ estimatedTime.appendChild(document.createTextNode(` ${minutes} 分钟`));
             translateBtn.innerHTML = '<i class="fas fa-language me-1"></i>正在生成...';
         } else if (data.translation_status === 'completed') {
             translateBtn.disabled = false;
-            translateBtn.innerHTML = '<i class="fas fa-language me-1"></i>重新生成对照';
+            translateBtn.innerHTML = '<i class="fas fa-language me-1"></i>查看中英对照';
         } else {
             translateBtn.disabled = false;
             translateBtn.innerHTML = '<i class="fas fa-language me-1"></i>生成中英对照';
@@ -1845,6 +1860,7 @@ async function loadResults() {
         
         if (result.success) {
             console.log(`loadResults: 结果加载成功，任务ID: ${currentTaskId}`);
+            currentResultData = result.data;
             displayResults(result.data);
             showResultArea();
             loadHistoryTasks(); // 刷新历史任务
@@ -1861,6 +1877,11 @@ async function loadResults() {
             }
             if (translateBtn) {
                 translateBtn.disabled = false;
+                if (result.data && result.data.bilingual_transcript) {
+                    translateBtn.innerHTML = '<i class="fas fa-language me-1"></i>查看中英对照';
+                } else {
+                    translateBtn.innerHTML = '<i class="fas fa-language me-1"></i>生成中英对照';
+                }
             }
             if (downloadSummaryBtn) {
                 downloadSummaryBtn.disabled = false;
@@ -1897,6 +1918,17 @@ function displayResults(data) {
     
     // 显示逐字稿
     document.getElementById('transcriptContent').textContent = data.transcript;
+    const bilingualSection = document.getElementById('bilingualSection');
+    const bilingualContent = document.getElementById('bilingualTranscriptContent');
+    if (bilingualSection && bilingualContent) {
+        if (data.bilingual_transcript) {
+            bilingualSection.style.display = 'block';
+            bilingualContent.textContent = data.bilingual_transcript;
+        } else {
+            bilingualSection.style.display = 'none';
+            bilingualContent.textContent = '';
+        }
+    }
     
     // 显示总结
     if (data.summary) {
