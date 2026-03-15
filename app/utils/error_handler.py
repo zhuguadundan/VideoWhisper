@@ -2,6 +2,7 @@ from functools import wraps
 from flask import jsonify, request, g
 import logging
 import traceback
+from app.utils.log_safety import mask_sensitive_data
 
 try:
     import requests
@@ -72,12 +73,7 @@ def api_error_handler(f):
                 try:
                     payload = request.get_json(silent=True) or {}
                     if isinstance(payload, dict):
-                        masked = {}
-                        for k, v in payload.items():
-                            if any(s in k.lower() for s in ['api_key', 'apikey', 'authorization', 'token', 'secret']):
-                                masked[k] = '***'
-                            else:
-                                masked[k] = v
+                        masked = mask_sensitive_data(payload)
                         logging.error(f"Request JSON (masked): {masked}")
                     else:
                         logging.error("Request JSON present (non-dict)")

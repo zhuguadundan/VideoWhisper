@@ -57,7 +57,7 @@ def test_process_video_success_flow_spawns_task(client, monkeypatch):
     monkeypatch.setattr(
         main.video_processor,
         "create_task",
-        lambda url, youtube_cookies=None: "task-123",
+        lambda url, youtube_cookies=None, bilibili_cookies=None: "task-123",
     )
     monkeypatch.setattr(
         main.video_processor, "process_video", lambda *args, **kwargs: None
@@ -85,6 +85,18 @@ def test_get_progress_returns_data(client, monkeypatch):
     assert data["success"] is True
     assert data["data"]["status"] == "processing"
     assert data["data"]["progress"] == 50
+
+
+def test_get_progress_returns_api_failure_for_missing_task(client, monkeypatch):
+    monkeypatch.setattr(
+        main.video_processor, "get_task_progress", lambda task_id: {"error": "任务不存在"}
+    )
+
+    resp = client.get("/api/progress/missing-task")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is False
+    assert data["error"] == "任务不存在"
 
 
 def test_downloads_create_requires_body_and_url(client):

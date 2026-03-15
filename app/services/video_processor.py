@@ -49,23 +49,20 @@ class _TaskStore:
         with self._owner._lock:
             return self._owner._cancel_flags.get(task_id, False)
 
-    def create_task(self, video_url: str, youtube_cookies: str = None) -> str:
+    def create_task(
+        self,
+        video_url: str,
+        youtube_cookies: str = None,
+        bilibili_cookies: str = None,
+    ) -> str:
         """与原 VideoProcessor.create_task 行为保持一致。"""
-
-        with self._owner._lock:
-            for tid, t in self._owner.tasks.items():
-                try:
-                    if getattr(t, "video_url", "") == video_url and getattr(
-                        t, "status", "pending"
-                    ) in ("pending", "processing"):
-                        return tid
-                except Exception:
-                    continue
 
         task_id = str(uuid.uuid4())
         task = ProcessingTask(id=task_id, video_url=video_url)
         if youtube_cookies:
             task.youtube_cookies = youtube_cookies
+        if bilibili_cookies:
+            task.bilibili_cookies = bilibili_cookies
         with self._owner._lock:
             self._owner.tasks[task_id] = task
             self._owner.save_tasks_to_disk()
@@ -183,6 +180,23 @@ class VideoProcessor:
             filename, default_name="video_task", max_length=100
         )
 
+    def _resolve_site_cookies(
+        self,
+        video_url: str,
+        youtube_cookies: Optional[str] = None,
+        bilibili_cookies: Optional[str] = None,
+    ) -> tuple[Optional[str], str]:
+        cookies_str = youtube_cookies
+        cookies_domain = ".youtube.com"
+        try:
+            url_l = (video_url or "").lower()
+            if "bilibili.com" in url_l or "b23.tv" in url_l:
+                cookies_str = bilibili_cookies or cookies_str
+                cookies_domain = ".bilibili.com"
+        except Exception:
+            pass
+        return cookies_str, cookies_domain
+
     def _create_speech_to_text_service(
         self, api_config: Optional[dict] = None
     ) -> SpeechToText:
@@ -243,17 +257,6 @@ class VideoProcessor:
 
         cookies 仅用于下载阶段的认证（可选），由前端从浏览器复制后传入。
         """
-
-        # 去重：如果同一 URL 已有进行中的任务，直接复用 task_id（幂等性）
-        with self._lock:
-            for tid, t in self.tasks.items():
-                try:
-                    if getattr(t, "video_url", "") == video_url and getattr(
-                        t, "status", "pending"
-                    ) in ("pending", "processing"):
-                        return tid
-                except Exception:
-                    continue
 
         task_id = str(uuid.uuid4())
         task = ProcessingTask(id=task_id, video_url=video_url)
@@ -363,12 +366,39 @@ class VideoProcessor:
             task.progress_detail = detail
         self.save_tasks_to_disk()
 
+    def _begin_task_processing(
+        self,
+        task: ProcessingTask,
+        *,
+        stage: str,
+        detail: str,
+        allowed_statuses: tuple[str, ...] = ("pending",),
+    ) -> bool:
+        """Atomically move a task to processing once for the allowed states."""
+        with self._lock:
+            if task.status not in allowed_statuses:
+                return False
+            task.status = "processing"
+            task.progress = 0
+            task.progress_stage = stage
+            task.progress_detail = detail
+            task.error_message = ""
+            self.save_tasks_to_disk()
+        return True
+
     def _step_get_video_info(
         self, task_id: str, task: ProcessingTask
     ) -> Optional[Dict[str, Any]]:
+        cookies_str, cookies_domain = self._resolve_site_cookies(
+            task.video_url,
+            task.youtube_cookies,
+            task.bilibili_cookies,
+        )
         try:
             video_info_dict = self.video_downloader.get_video_info(
-                task.video_url, task.youtube_cookies
+                task.video_url,
+                cookies_str=cookies_str,
+                cookies_domain=cookies_domain,
             )
         except Exception as e:
             # 友好错误：抓取失败，带原因提示
@@ -409,16 +439,11 @@ class VideoProcessor:
         self._update_progress(task, stage="下载音频", detail="正在下载音频文件...")
         try:
             self.logger.debug("[DEBUG] 开始调用download_audio_only")
-            # Choose site cookies based on URL (optional)
-            cookies_str = task.youtube_cookies
-            cookies_domain = ".youtube.com"
-            try:
-                url_l = (task.video_url or "").lower()
-                if "bilibili.com" in url_l or "b23.tv" in url_l:
-                    cookies_str = task.bilibili_cookies or cookies_str
-                    cookies_domain = ".bilibili.com"
-            except Exception:
-                pass
+            cookies_str, cookies_domain = self._resolve_site_cookies(
+                task.video_url,
+                task.youtube_cookies,
+                task.bilibili_cookies,
+            )
 
             audio_path = self.video_downloader.download_audio_only(
                 task.video_url,
@@ -445,6 +470,16 @@ class VideoProcessor:
         task = self.get_task(task_id)
         if not task:
             raise ValueError(f"任务不存在: {task_id}")
+
+        if not self._begin_task_processing(
+            task,
+            stage="获取视频信息",
+            detail="正在解析视频链接...",
+        ):
+            self.logger.info(
+                f"[{task_id}] 跳过重复下载启动，当前状态: {task.status}"
+            )
+            return task
 
         try:
             task.status = "processing"
@@ -497,16 +532,11 @@ class VideoProcessor:
             task_output_dir = os.path.join(self.output_dir, task_id)
             os.makedirs(task_output_dir, exist_ok=True)
 
-            # Choose site cookies based on URL (optional)
-            cookies_str = task.youtube_cookies
-            cookies_domain = ".youtube.com"
-            try:
-                url_l = (task.video_url or "").lower()
-                if "bilibili.com" in url_l or "b23.tv" in url_l:
-                    cookies_str = task.bilibili_cookies or cookies_str
-                    cookies_domain = ".bilibili.com"
-            except Exception:
-                pass
+            cookies_str, cookies_domain = self._resolve_site_cookies(
+                task.video_url,
+                task.youtube_cookies,
+                task.bilibili_cookies,
+            )
 
             final_path = self.video_downloader.download_video(
                 task.video_url,
@@ -525,6 +555,7 @@ class VideoProcessor:
             task.progress_stage = "完成"
             task.progress_detail = "下载完成！"
             task.estimated_time = 0
+            task.error_message = ""
 
         except DownloadCancelled as e:
             task.status = "failed"
@@ -825,6 +856,16 @@ class VideoProcessor:
         if not task:
             raise ValueError(f"任务不存在: {task_id}")
 
+        if not self._begin_task_processing(
+            task,
+            stage="获取视频信息",
+            detail="正在解析视频链接...",
+        ):
+            self.logger.info(
+                f"[{task_id}] 跳过重复处理启动，当前状态: {task.status}"
+            )
+            return task
+
         try:
             speech_to_text = self._create_speech_to_text_service(api_config)
             text_processor = self._create_text_processor_service(api_config)
@@ -920,6 +961,7 @@ class VideoProcessor:
             task.estimated_time = 0
 
             # 清理临时文件 - 智能保留最近3次任务的文件
+            task.error_message = ""
             self._smart_cleanup_temp_files(task_id, audio_path)
 
             # 任务完成后触发 webhook 通知（失败不影响主流程）
@@ -966,6 +1008,17 @@ class VideoProcessor:
             f"[{task_id}] 文件信息: audio_file_path={task.audio_file_path}, file_type={task.file_type}, need_audio_extraction={task.need_audio_extraction}"
         )
 
+        if not self._begin_task_processing(
+            task,
+            stage="文件预处理",
+            detail="正在分析上传的文件...",
+            allowed_statuses=("pending", "failed"),
+        ):
+            self.logger.info(
+                f"[{task_id}] 跳过重复上传处理启动，当前状态: {task.status}"
+            )
+            return task
+
         try:
             speech_to_text = self._create_speech_to_text_service(api_config)
             text_processor = self._create_text_processor_service(api_config)
@@ -987,12 +1040,6 @@ class VideoProcessor:
             else:
                 llm_provider = None
                 self.logger.info(f"[{task_id}] 无可用AI文本处理提供商，跳过AI生成阶段")
-
-            task.status = "processing"
-            task.progress = 0
-            task.progress_stage = "文件预处理"
-            task.progress_detail = "正在分析上传的文件..."
-            self.save_tasks_to_disk()
 
             # 获取文件信息
             if self._is_cancelled(task_id):
@@ -1128,6 +1175,7 @@ class VideoProcessor:
             task.progress_stage = "完成"
             task.progress_detail = "处理完成！"
             task.estimated_time = 0
+            task.error_message = ""
 
             # 清理临时文件
             self._smart_cleanup_temp_files(task_id, task.audio_file_path)

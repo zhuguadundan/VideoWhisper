@@ -205,7 +205,11 @@ class APIConfigManager {
                 }
             };
             
-            console.log('保存配置:', config);
+            if (window.UIHelpers && typeof window.UIHelpers.maskSensitiveData === 'function') {
+                console.log('保存配置摘要:', window.UIHelpers.maskSensitiveData(config));
+            } else {
+                console.log('配置已保存到本地存储');
+            }
             
             // 加密存储（使用UTF-8安全的Base64编码）
             const encrypted = btoa(unescape(encodeURIComponent(JSON.stringify(config))));
@@ -1018,6 +1022,7 @@ class APIConfigManager {
 
 // 实例化配置管理器
 const configManager = new APIConfigManager();
+window.apiConfigManager = configManager;
 
 // 切换密码可见性
 function togglePasswordVisibility(inputId) {

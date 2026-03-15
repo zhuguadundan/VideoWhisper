@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, request, g
 from app.config.settings import Config
+from app.utils.log_safety import mask_sensitive_data
 import logging
 from logging.handlers import RotatingFileHandler
 import traceback
@@ -183,12 +184,7 @@ def create_app():
             if request.is_json:
                 payload = request.get_json(silent=True) or {}
                 if isinstance(payload, dict):
-                    masked = {}
-                    for k, v in payload.items():
-                        if any(s in k.lower() for s in ['api_key', 'apikey', 'authorization', 'token', 'secret']):
-                            masked[k] = '***'
-                        else:
-                            masked[k] = v
+                    masked = mask_sensitive_data(payload)
                     logging.error(f"Request JSON (masked): {masked}")
             else:
                 body = request.get_data(cache=False) or b''

@@ -70,6 +70,32 @@ class DownloadCancelled(RuntimeError):
 
 
 logger = logging.getLogger(__name__)
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_ESCAPE_RE.sub("", text or "")
+
+
+class _YtDlpLogger:
+    """Route yt-dlp output into the app logger instead of fragile stdio streams."""
+
+    def __init__(self, target: logging.Logger):
+        self._target = target
+
+    def _log(self, level: str, message: str) -> None:
+        cleaned = _strip_ansi(str(message)).strip()
+        if cleaned:
+            getattr(self._target, level)("[yt-dlp] %s", cleaned)
+
+    def debug(self, message: str) -> None:
+        self._log("debug", message)
+
+    def warning(self, message: str) -> None:
+        self._log("warning", message)
+
+    def error(self, message: str) -> None:
+        self._log("error", message)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -135,12 +161,20 @@ class VideoDownloader:
         *,
         cookies_domain: Optional[str] = None,
     ) -> Dict[str, Any]:
+        # Web runtime must not let yt-dlp write directly to stdout/stderr.
+        configured_quiet = bool(
+            self.config.get("downloader", {}).get("general", {}).get("quiet", True)
+        )
+        if not configured_quiet:
+            logger.warning(
+                "downloader.general.quiet=false is unsafe in web runtime; forcing yt-dlp quiet mode"
+            )
+
         # Minimal, safe defaults; enable ffmpeg audio extraction
         opts: Dict[str, Any] = {
-            "quiet": (
-                self.config.get("downloader", {}).get("general", {}).get("quiet", False)
-            ),
+            "quiet": True,
             "no_warnings": False,
+            "logger": _YtDlpLogger(logger),
             "outtmpl": os.path.join(self.temp_dir, "%(title)s.%(ext)s"),
             "restrictfilenames": True,
             "noplaylist": True,
@@ -182,6 +216,14 @@ class VideoDownloader:
 
         return opts
 
+    def _cleanup_temp_cookiefile(self, opts: Dict[str, Any]) -> None:
+        try:
+            tmp = opts.get("_temp_cookiefile")
+            if tmp and os.path.exists(tmp):
+                os.unlink(tmp)
+        except Exception:
+            pass
+
     # --- public API ---
     def get_video_info(
         self,
@@ -201,57 +243,54 @@ class VideoDownloader:
 
         ydlp = importlib.import_module("yt_dlp")
         opts = self._build_base_opts(cookies_str, cookies_domain=cookies_domain)
-        res: Dict[str, Any] = {}
-        with ydlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            # Flatten playlist entries
-            if info and isinstance(info, dict) and "entries" in info:
-                info = info["entries"][0]
-
-            res = {
-                "id": (info or {}).get("id"),
-                "title": (info or {}).get("title") or "Untitled",
-                "uploader": (info or {}).get("uploader") or (info or {}).get("channel"),
-                "duration": (info or {}).get("duration"),
-                "webpage_url": (info or {}).get("webpage_url") or url,
-                "url": (info or {}).get("webpage_url") or url,
-                "ext": (info or {}).get("ext"),
-            }
-
-            if include_formats:
-                formats = []
-                for f in (info or {}).get("formats") or []:
-                    if not isinstance(f, dict):
-                        continue
-                    formats.append(
-                        {
-                            "format_id": f.get("format_id"),
-                            "ext": f.get("ext"),
-                            "acodec": f.get("acodec"),
-                            "vcodec": f.get("vcodec"),
-                            "height": f.get("height"),
-                            "width": f.get("width"),
-                            "fps": f.get("fps"),
-                            "tbr": f.get("tbr"),
-                            "filesize": f.get("filesize"),
-                            "filesize_approx": f.get("filesize_approx"),
-                            "format_note": f.get("format_note"),
-                        }
-                    )
-                res["formats"] = formats
-                # Helpful metadata for quality-tier UI
-                res["_has_formats"] = True
-
-            # Always avoid downloading from info-probe endpoints
-            res["_probe_only"] = True
-        # Cleanup temp cookie file
         try:
-            tmp = opts.get("_temp_cookiefile")
-            if tmp and os.path.exists(tmp):
-                os.unlink(tmp)
-        except Exception:
-            pass
-        return res
+            res: Dict[str, Any] = {}
+            with ydlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                # Flatten playlist entries
+                if info and isinstance(info, dict) and "entries" in info:
+                    info = info["entries"][0]
+
+                res = {
+                    "id": (info or {}).get("id"),
+                    "title": (info or {}).get("title") or "Untitled",
+                    "uploader": (info or {}).get("uploader")
+                    or (info or {}).get("channel"),
+                    "duration": (info or {}).get("duration"),
+                    "webpage_url": (info or {}).get("webpage_url") or url,
+                    "url": (info or {}).get("webpage_url") or url,
+                    "ext": (info or {}).get("ext"),
+                }
+
+                if include_formats:
+                    formats = []
+                    for f in (info or {}).get("formats") or []:
+                        if not isinstance(f, dict):
+                            continue
+                        formats.append(
+                            {
+                                "format_id": f.get("format_id"),
+                                "ext": f.get("ext"),
+                                "acodec": f.get("acodec"),
+                                "vcodec": f.get("vcodec"),
+                                "height": f.get("height"),
+                                "width": f.get("width"),
+                                "fps": f.get("fps"),
+                                "tbr": f.get("tbr"),
+                                "filesize": f.get("filesize"),
+                                "filesize_approx": f.get("filesize_approx"),
+                                "format_note": f.get("format_note"),
+                            }
+                        )
+                    res["formats"] = formats
+                    # Helpful metadata for quality-tier UI
+                    res["_has_formats"] = True
+
+                # Always avoid downloading from info-probe endpoints
+                res["_probe_only"] = True
+            return res
+        finally:
+            self._cleanup_temp_cookiefile(opts)
 
     def download_audio_only(
         self,
@@ -291,40 +330,35 @@ class VideoDownloader:
             }
         )
 
-        # Download
-        downloaded: Optional[str] = None
-        with ydlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            if info and "_filename" in info:
-                downloaded = info["_filename"]
-            else:
-                downloaded = ydl.prepare_filename(info)
-
-        # Postprocessed file may have .mp3 extension
-        if not downloaded:
-            raise RuntimeError("yt-dlp did not return a downloaded filename")
-
-        base = os.path.splitext(downloaded)[0]
-        candidates = [f"{base}.mp3", downloaded]
-        final_path: Optional[str] = None
-        for p in candidates:
-            if p and os.path.exists(p):
-                final_path = p
-                break
-        if not final_path:
-            # Fallback: search in out_dir
-            mp3s = list(Path(out_dir).glob("*.mp3"))
-            final_path = str(mp3s[0]) if mp3s else downloaded
-
-        # Cleanup temp cookie file
         try:
-            tmp = opts.get("_temp_cookiefile")
-            if tmp and os.path.exists(tmp):
-                os.unlink(tmp)
-        except Exception:
-            pass
+            # Download
+            downloaded: Optional[str] = None
+            with ydlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                if info and "_filename" in info:
+                    downloaded = info["_filename"]
+                else:
+                    downloaded = ydl.prepare_filename(info)
 
-        return final_path
+            # Postprocessed file may have .mp3 extension
+            if not downloaded:
+                raise RuntimeError("yt-dlp did not return a downloaded filename")
+
+            base = os.path.splitext(downloaded)[0]
+            candidates = [f"{base}.mp3", downloaded]
+            final_path: Optional[str] = None
+            for p in candidates:
+                if p and os.path.exists(p):
+                    final_path = p
+                    break
+            if not final_path:
+                # Fallback: search in out_dir
+                mp3s = list(Path(out_dir).glob("*.mp3"))
+                final_path = str(mp3s[0]) if mp3s else downloaded
+
+            return final_path
+        finally:
+            self._cleanup_temp_cookiefile(opts)
 
     def download_video(
         self,
@@ -446,13 +480,7 @@ class VideoDownloader:
                     downloaded_path = ydl.prepare_filename(info)
         finally:
             _DOWNLOAD_SEMAPHORE.release()
-            # Cleanup temp cookie file
-            try:
-                tmp = opts.get("_temp_cookiefile")
-                if tmp and os.path.exists(tmp):
-                    os.unlink(tmp)
-            except Exception:
-                pass
+            self._cleanup_temp_cookiefile(opts)
 
         if not downloaded_path or not os.path.exists(downloaded_path):
             raise RuntimeError("Download failed: output file not found")

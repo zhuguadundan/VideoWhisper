@@ -5,6 +5,62 @@ let currentResultData = null;
 let selectedFile = null;
 let uploadTaskId = null;
 let uploadConfig = null;
+let activeDownloadSession = null;
+
+function setDownloadSubmitButtonState(state = 'idle') {
+    const submitBtn = document.getElementById('submitDownloadBtn');
+    if (!submitBtn) return;
+
+    if (state === 'starting') {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>下载中...';
+        submitBtn.classList.add('loading-shimmer');
+        return;
+    }
+
+    if (state === 'active') {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-hourglass-half me-2"></i>下载进行中';
+        submitBtn.classList.add('loading-shimmer');
+        return;
+    }
+
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<i class="fas fa-download me-2"></i>开始下载（MP4）';
+    submitBtn.classList.remove('loading-shimmer');
+}
+
+function clearActiveDownloadSession(taskId = null) {
+    if (!activeDownloadSession) {
+        setDownloadSubmitButtonState('idle');
+        return;
+    }
+
+    if (taskId && activeDownloadSession.taskId !== taskId) {
+        return;
+    }
+
+    if (activeDownloadSession.poll) {
+        clearInterval(activeDownloadSession.poll);
+    }
+    if (activeDownloadSession.fallback) {
+        clearInterval(activeDownloadSession.fallback);
+    }
+
+    activeDownloadSession = null;
+    setDownloadSubmitButtonState('idle');
+}
+
+function getSafeLogPayload(payload) {
+    try {
+        if (window.UIHelpers && typeof window.UIHelpers.maskSensitiveData === 'function') {
+            return window.UIHelpers.maskSensitiveData(payload);
+        }
+    } catch (_) {
+        // ignore masking fallback errors
+    }
+    return {};
+}
 
 function stopProgressMonitoring() {
     if (progressInterval) {
@@ -710,13 +766,17 @@ async function handleUploadProcess(taskId) {
         let config = {};
         try {
             config = getApiConfig();
-            console.log(`API配置获取成功: ${JSON.stringify(config)}`);
+            console.log('API配置获取成功（已脱敏）:', getSafeLogPayload(config));
         } catch (configError) {
             console.warn(`获取API配置失败: ${configError.message}`);
             console.log(`使用空配置继续处理`);
         }
         
-        console.log(`处理参数: provider=${provider}, config=${JSON.stringify(config)}`);
+        console.log('处理参数（已脱敏）:', {
+            task_id: taskId,
+            provider,
+            api_config: getSafeLogPayload(config)
+        });
         
         // 验证必要参数
         if (!taskId) {
@@ -729,7 +789,7 @@ async function handleUploadProcess(taskId) {
             api_config: config
         };
         
-        console.log(`请求数据: ${JSON.stringify(requestData)}`);
+        console.log('请求数据（已脱敏）:', getSafeLogPayload(requestData));
         
         const response = await fetch('/api/process-upload', {
             method: 'POST',
@@ -1124,12 +1184,15 @@ function isValidUrl(string) {
         return;
     }
 
+    if (activeDownloadSession) {
+        showAlert('当前已有下载任务正在进行，请等待完成后再试', 'warning');
+        return;
+    }
+
     // 避免重复提交
     if (submitBtn.disabled) return;
 
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>下载中...';
-    submitBtn.classList.add('loading-shimmer');
+    setDownloadSubmitButtonState('starting');
 
     // Reset UI
     if (resultArea) resultArea.style.display = 'block';
@@ -1144,6 +1207,9 @@ function isValidUrl(string) {
         fileLink.style.display = 'none';
         fileLink.href = '#';
     }
+
+    let createdTaskId = null;
+    let downloadSession = null;
 
     try {
         const config = (() => {
@@ -1188,15 +1254,42 @@ function isValidUrl(string) {
             return;
         }
 
+        createdTaskId = taskId;
+        downloadSession = { taskId, poll: null, fallback: null };
+        activeDownloadSession = downloadSession;
+        setDownloadSubmitButtonState('active');
+
         if (taskIdEl) taskIdEl.textContent = taskId;
         if (statusText) statusText.textContent = '任务已创建，开始下载...';
+
+        let fallback = null;
+        const failDownloadSession = (message, title = '下载失败', level = 'error') => {
+            clearActiveDownloadSession(taskId);
+            if (statusText) {
+                statusText.textContent = message || title;
+            }
+            showToast(level, title, message || '');
+        };
 
         // Poll progress via existing endpoint
         const poll = setInterval(async () => {
             try {
                 const resp = await fetch(`/api/progress/${taskId}`);
-                const pr = await resp.json();
-                if (!pr.success) return;
+                let pr = null;
+                try {
+                    pr = await resp.json();
+                } catch (_) {
+                    if (!resp.ok) {
+                        failDownloadSession(`无法获取下载进度（HTTP ${resp.status}）`);
+                    }
+                    return;
+                }
+
+                if (!resp.ok || !pr.success) {
+                    const message = pr?.message || pr?.error || `无法获取下载进度（HTTP ${resp.status}）`;
+                    failDownloadSession(message);
+                    return;
+                }
 
                 const data = pr.data || {};
                 const pct = typeof data.progress === 'number' ? data.progress : 0;
@@ -1211,7 +1304,7 @@ function isValidUrl(string) {
                 if (statusText) statusText.textContent = [stage, detail].filter(Boolean).join(' - ');
 
                 if (data.status === 'completed') {
-                    clearInterval(poll);
+                    clearActiveDownloadSession(taskId);
                     if (fileLink) {
                         fileLink.href = `/api/downloads/${taskId}/file`;
                         fileLink.style.display = 'inline-block';
@@ -1220,28 +1313,31 @@ function isValidUrl(string) {
                 }
 
                 if (data.status === 'failed') {
-                    clearInterval(poll);
-                    showToast('error', '下载失败', data.error_message || data.error || '');
+                    failDownloadSession(data.error_message || data.error || '');
                 }
             } catch (e2) {
                 // ignore transient errors while polling
             }
         }, 1000);
+        downloadSession.poll = poll;
 
         // Ensure the UI eventually shows the file link even if progress polling misses the terminal state.
         // This happens when the backend finishes very quickly or the progress endpoint returns cached intermediate state.
         const maxWaitMs = 5 * 60 * 1000;
         const startedAt = Date.now();
-        const fallback = setInterval(async () => {
+        fallback = setInterval(async () => {
             if (Date.now() - startedAt > maxWaitMs) {
-                clearInterval(fallback);
+                clearActiveDownloadSession(taskId);
+                if (statusText) {
+                    statusText.textContent = '下载状态查询超时，请稍后重试';
+                }
+                showToast('warning', '下载状态超时', '长时间未获取到下载完成状态，请稍后刷新页面确认结果');
                 return;
             }
             try {
                 const f = await fetch(`/api/downloads/${taskId}/file`, { method: 'HEAD' });
                 if (f.ok) {
-                    clearInterval(fallback);
-                    clearInterval(poll);
+                    clearActiveDownloadSession(taskId);
                     if (fileLink) {
                         fileLink.href = `/api/downloads/${taskId}/file`;
                         fileLink.style.display = 'inline-block';
@@ -1252,14 +1348,18 @@ function isValidUrl(string) {
                 // ignore
             }
         }, 1500);
+        downloadSession.fallback = fallback;
 
     } catch (error) {
+        clearActiveDownloadSession(createdTaskId);
         console.error('下载任务创建失败:', error);
         showAlert('请求失败: ' + (error.message || '网络错误'), 'danger');
     } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = '<i class="fas fa-download me-2"></i>开始下载（MP4）';
-        submitBtn.classList.remove('loading-shimmer');
+        if (activeDownloadSession && activeDownloadSession.taskId === createdTaskId) {
+            setDownloadSubmitButtonState('active');
+        } else if (!activeDownloadSession) {
+            clearActiveDownloadSession(createdTaskId);
+        }
     }
 }
 
@@ -1309,6 +1409,9 @@ async function handleUrlFormSubmit(e) {
         // 添加 YouTube cookies（如果有配置）
         if (config && config.youtube && config.youtube.cookies) {
             requestData.youtube_cookies = config.youtube.cookies;
+        }
+        if (config && config.bilibili && config.bilibili.cookies) {
+            requestData.bilibili_cookies = config.bilibili.cookies;
         }
         
         const response = await fetch('/api/process', {

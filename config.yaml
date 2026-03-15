@@ -86,7 +86,7 @@ downloader:
   general:
     format: "best[height<=720]/best"  # 视频格式
     audio_format: "bestaudio/best"    # 音频格式
-    quiet: false                      # 静默模式
+    quiet: true                       # Web 服务默认使用静默模式，详细输出走应用日志
 
 # 文件上传配置
 upload:

@@ -115,6 +115,69 @@ def test_process_upload_success_spawns_background_processing(client, monkeypatch
     assert data["data"]["task_id"] == "u-3"
 
 
+def test_process_upload_reuses_inflight_task_without_spawning_new_worker(
+    client, monkeypatch
+):
+    task = UploadTask(
+        id="u-4",
+        video_url="",
+        status="processing",
+        file_type="video",
+        original_filename="video4.mp4",
+        file_size=123,
+        upload_status="completed",
+        upload_progress=100,
+    )
+    called = {"count": 0}
+
+    def fake_process_upload(*args, **kwargs):
+        called["count"] += 1
+
+    monkeypatch.setattr(main.video_processor, "get_task", lambda task_id: task)
+    monkeypatch.setattr(main.video_processor, "process_upload", fake_process_upload)
+
+    resp = client.post(
+        "/api/process-upload",
+        json={"task_id": "u-4", "llm_provider": "openai", "api_config": {}},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["data"]["task_id"] == "u-4"
+    assert data["data"]["status"] == "processing"
+    assert called["count"] == 0
+
+
+def test_process_upload_failed_task_can_retry(client, monkeypatch):
+    task = UploadTask(
+        id="u-5",
+        video_url="",
+        status="failed",
+        file_type="video",
+        original_filename="video5.mp4",
+        file_size=123,
+        upload_status="completed",
+        upload_progress=100,
+    )
+    called = {"count": 0}
+
+    def fake_process_upload(*args, **kwargs):
+        called["count"] += 1
+
+    monkeypatch.setattr(main.video_processor, "get_task", lambda task_id: task)
+    monkeypatch.setattr(main.video_processor, "process_upload", fake_process_upload)
+
+    resp = client.post(
+        "/api/process-upload",
+        json={"task_id": "u-5", "llm_provider": "openai", "api_config": {}},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["data"]["task_id"] == "u-5"
+    assert called["count"] == 1
+
+
 def test_get_upload_config_endpoint(client, monkeypatch):
     monkeypatch.setattr(
         main.file_uploader,
@@ -127,4 +190,3 @@ def test_get_upload_config_endpoint(client, monkeypatch):
     data = resp.get_json()
     assert data["success"] is True
     assert data["data"]["max_size_mb"] == 100
-

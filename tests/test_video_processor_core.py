@@ -19,7 +19,7 @@ def _make_config(temp_dir: str, output_dir: str):
     }
 
 
-def test_create_task_idempotent_for_same_url(tmp_path, monkeypatch):
+def test_create_task_creates_distinct_ids_for_same_url(tmp_path, monkeypatch):
     temp_dir = tmp_path / "temp"
     output_dir = tmp_path / "output"
     temp_dir.mkdir()
@@ -34,7 +34,7 @@ def test_create_task_idempotent_for_same_url(tmp_path, monkeypatch):
     task_id_1 = vp.create_task(url)
     task_id_2 = vp.create_task(url)
 
-    assert task_id_1 == task_id_2
+    assert task_id_1 != task_id_2
 
 
 def test_cancel_flags_and_cancel_all_processing(tmp_path, monkeypatch):
@@ -134,3 +134,216 @@ def test_save_and_load_tasks_round_trip(tmp_path, monkeypatch):
     assert loaded_task.ai_response_times == {"transcript": 1.2, "summary": 2.3}
     assert loaded_task.download_format == "137+140"
     assert loaded_task.video_info.description == "desc"
+
+
+def test_step_get_video_info_uses_site_specific_cookies(tmp_path, monkeypatch):
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+
+    cfg = _make_config(str(temp_dir), str(output_dir))
+    monkeypatch.setattr(Config, "load_config", staticmethod(lambda: cfg))
+
+    vp = VideoProcessor()
+    task_id = vp.create_task(
+        "https://www.bilibili.com/video/BV1xx411c7mD",
+        bilibili_cookies="SESSDATA=abc",
+    )
+    task = vp.get_task(task_id)
+    captured = {}
+
+    def fake_get_video_info(url, cookies_str=None, *, cookies_domain=None):
+        captured["url"] = url
+        captured["cookies_str"] = cookies_str
+        captured["cookies_domain"] = cookies_domain
+        return {
+            "title": "Bili Video",
+            "url": url,
+            "duration": 12,
+            "uploader": "tester",
+        }
+
+    monkeypatch.setattr(vp.video_downloader, "get_video_info", fake_get_video_info)
+
+    info = vp._step_get_video_info(task_id, task)
+
+    assert info["title"] == "Bili Video"
+    assert captured["url"] == task.video_url
+    assert captured["cookies_str"] == "SESSDATA=abc"
+    assert captured["cookies_domain"] == ".bilibili.com"
+
+
+def test_download_video_only_skips_duplicate_start_when_task_is_processing(
+    tmp_path, monkeypatch
+):
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+
+    cfg = _make_config(str(temp_dir), str(output_dir))
+    monkeypatch.setattr(Config, "load_config", staticmethod(lambda: cfg))
+
+    vp = VideoProcessor()
+    task_id = vp.create_task("https://example.com/video")
+    task = vp.get_task(task_id)
+    task.status = "processing"
+
+    def fail_if_called(*args, **kwargs):  # pragma: no cover
+        raise AssertionError("duplicate download start should not reach downloader")
+
+    monkeypatch.setattr(vp, "_step_get_video_info", fail_if_called)
+
+    result = vp.download_video_only(task_id)
+
+    assert result is task
+    assert task.status == "processing"
+
+
+def test_process_video_skips_duplicate_start_when_task_is_processing(
+    tmp_path, monkeypatch
+):
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+
+    cfg = _make_config(str(temp_dir), str(output_dir))
+    monkeypatch.setattr(Config, "load_config", staticmethod(lambda: cfg))
+
+    vp = VideoProcessor()
+    task_id = vp.create_task("https://example.com/video")
+    task = vp.get_task(task_id)
+    task.status = "processing"
+
+    def fail_if_called(*args, **kwargs):  # pragma: no cover
+        raise AssertionError("duplicate processing start should not build services")
+
+    monkeypatch.setattr(vp, "_create_speech_to_text_service", fail_if_called)
+
+    result = vp.process_video(task_id)
+
+    assert result is task
+    assert task.status == "processing"
+
+
+def test_download_video_only_clears_stale_error_on_success(tmp_path, monkeypatch):
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+
+    cfg = _make_config(str(temp_dir), str(output_dir))
+    monkeypatch.setattr(Config, "load_config", staticmethod(lambda: cfg))
+
+    vp = VideoProcessor()
+    task_id = vp.create_task("https://example.com/video")
+    task = vp.get_task(task_id)
+    task.error_message = "stale error"
+
+    final_dir = output_dir / task_id
+    final_dir.mkdir()
+    final_path = final_dir / "video.mp4"
+    final_path.touch()
+
+    monkeypatch.setattr(
+        vp,
+        "_step_get_video_info",
+        lambda current_task_id, current_task: {
+            "title": "Video",
+            "url": current_task.video_url,
+            "duration": 10,
+            "uploader": "tester",
+        },
+    )
+    monkeypatch.setattr(
+        vp.video_downloader,
+        "download_video",
+        lambda *args, **kwargs: str(final_path),
+    )
+
+    result = vp.download_video_only(task_id)
+
+    assert result.status == "completed"
+    assert result.error_message == ""
+    assert result.video_file_path == str(final_path)
+
+
+def test_process_upload_skips_duplicate_start_when_task_is_processing(
+    tmp_path, monkeypatch
+):
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+
+    cfg = _make_config(str(temp_dir), str(output_dir))
+    monkeypatch.setattr(Config, "load_config", staticmethod(lambda: cfg))
+
+    vp = VideoProcessor()
+    task_id = vp.create_upload_task("audio.mp3", 123, "audio", "audio/mpeg")
+    task = vp.get_task(task_id)
+    task.upload_status = "completed"
+    task.status = "processing"
+    task.audio_file_path = str(temp_dir / "audio.mp3")
+
+    def fail_if_called(*args, **kwargs):  # pragma: no cover
+        raise AssertionError("duplicate upload processing should not build services")
+
+    monkeypatch.setattr(vp, "_create_speech_to_text_service", fail_if_called)
+
+    result = vp.process_upload(task_id)
+
+    assert result is task
+    assert task.status == "processing"
+
+
+def test_process_upload_clears_stale_error_on_success(tmp_path, monkeypatch):
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+
+    cfg = _make_config(str(temp_dir), str(output_dir))
+    monkeypatch.setattr(Config, "load_config", staticmethod(lambda: cfg))
+
+    vp = VideoProcessor()
+    task_id = vp.create_upload_task("audio.mp3", 123, "audio", "audio/mpeg")
+    task = vp.get_task(task_id)
+    task.upload_status = "completed"
+    task.audio_file_path = str(temp_dir / "audio.mp3")
+    task.error_message = "stale error"
+
+    class _NoTextProvider:
+        def get_available_providers(self):
+            return []
+
+    monkeypatch.setattr(vp, "_create_speech_to_text_service", lambda api_config=None: object())
+    monkeypatch.setattr(vp, "_create_text_processor_service", lambda api_config=None: _NoTextProvider())
+    monkeypatch.setattr(
+        vp.file_uploader,
+        "get_file_info_from_path",
+        lambda path: {"duration": 10, "file_size": 123},
+    )
+    monkeypatch.setattr(
+        vp.audio_extractor,
+        "get_audio_info",
+        lambda path: {"duration": 10},
+    )
+    monkeypatch.setattr(
+        vp,
+        "_step_process_audio_and_transcribe",
+        lambda *args, **kwargs: ("hello", [], "en", {"duration": 10}),
+    )
+    monkeypatch.setattr(vp, "_save_results", lambda current_task: None)
+    monkeypatch.setattr(
+        vp,
+        "_smart_cleanup_temp_files",
+        lambda current_task_id, audio_path: None,
+    )
+
+    result = vp.process_upload(task_id)
+
+    assert result.status == "completed"
+    assert result.error_message == ""

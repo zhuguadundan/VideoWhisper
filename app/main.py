@@ -312,6 +312,22 @@ def process_upload():
         )
         raise ValueError("文件上传未完成，请等待上传完成后再处理")
 
+    task_status = getattr(task, "status", "pending")
+    if task_status == "processing":
+        logging.info(f"上传文件任务已在处理中，复用现有任务: {task_id}")
+        return safe_json_response(
+            success=True,
+            data={"task_id": task_id, "status": task_status},
+            message="任务已在处理中",
+        )
+    if task_status == "completed":
+        logging.info(f"上传文件任务已处理完成，直接返回现有结果: {task_id}")
+        return safe_json_response(
+            success=True,
+            data={"task_id": task_id, "status": task_status},
+            message="任务已处理完成",
+        )
+
     logging.info(
         f"开始处理上传文件任务: {task_id}, 文件: {task.original_filename}, audio_file_path={task.audio_file_path}"
     )
@@ -376,6 +392,7 @@ def process_video():
     except Exception as e:
         raise ValueError(str(e))
     youtube_cookies = data.get("youtube_cookies", "")  # 获取 YouTube cookies
+    bilibili_cookies = data.get("bilibili_cookies", "")  # 获取 Bilibili cookies
 
     # SSRF 防护：处理前先校验视频URL
     allowed_hosts, allow_http, allow_private, enforce_whitelist = get_security_policy()
@@ -390,10 +407,16 @@ def process_video():
         raise ValueError("不安全的视频URL，必须为HTTPS且非内网/本地地址")
 
     # 创建任务（支持 cookies 参数）
-    task_id = video_processor.create_task(video_url, youtube_cookies)
+    task_id = video_processor.create_task(
+        video_url,
+        youtube_cookies=youtube_cookies,
+        bilibili_cookies=bilibili_cookies,
+    )
     logging.info(f"创建新任务: {task_id}, URL: {video_url} (仅音频模式)")
     if youtube_cookies:
         logging.info(f"任务 {task_id} 使用了 YouTube cookies")
+    if bilibili_cookies:
+        logging.info(f"任务 {task_id} 使用了 Bilibili cookies")
 
     # 创建带异常处理的处理函数
     def safe_process_video():

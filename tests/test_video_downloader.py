@@ -7,7 +7,7 @@ from app.config.settings import Config
 from app.services.video_downloader import VideoDownloader
 
 
-def _patch_config_for_tmp(tmp_path, monkeypatch):
+def _patch_config_for_tmp(tmp_path, monkeypatch, *, quiet=True):
     monkeypatch.setattr(settings, "_PROJECT_ROOT", str(tmp_path), raising=False)
 
     def fake_load_config():
@@ -16,7 +16,7 @@ def _patch_config_for_tmp(tmp_path, monkeypatch):
                 "temp_dir": "temp",
                 "output_dir": "output",
             },
-            "downloader": {"general": {"quiet": True}},
+            "downloader": {"general": {"quiet": quiet}},
         }
 
     monkeypatch.setattr(Config, "load_config", staticmethod(fake_load_config))
@@ -134,3 +134,51 @@ def test_download_audio_only_uses_outdir_and_returns_existing_file(tmp_path, mon
         [str(out_dir), os.path.abspath(result_path)]
     )
     assert os.path.exists(result_path)
+
+
+def test_build_base_opts_routes_ytdlp_output_into_logger(tmp_path, monkeypatch):
+    _patch_config_for_tmp(tmp_path, monkeypatch, quiet=False)
+
+    vd = VideoDownloader()
+    opts = vd._build_base_opts()
+
+    assert opts["quiet"] is True
+    assert "logger" in opts
+    assert hasattr(opts["logger"], "debug")
+    assert hasattr(opts["logger"], "warning")
+    assert hasattr(opts["logger"], "error")
+
+
+def test_get_video_info_cleans_cookie_file_even_on_error(tmp_path, monkeypatch):
+    _patch_config_for_tmp(tmp_path, monkeypatch, quiet=False)
+
+    captured_opts = {}
+
+    class DummyYDL:
+        def __init__(self, opts):
+            captured_opts["opts"] = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def extract_info(self, url, download=False):
+            raise RuntimeError("boom")
+
+    dummy_module = types.SimpleNamespace(YoutubeDL=DummyYDL)
+    monkeypatch.setitem(sys.modules, "yt_dlp", dummy_module)
+
+    vd = VideoDownloader()
+
+    try:
+        vd.get_video_info("https://example.com/watch?v=1", cookies_str="SID=abc")
+    except RuntimeError as exc:
+        assert str(exc) == "boom"
+    else:  # pragma: no cover
+        raise AssertionError("expected RuntimeError")
+
+    tmp_cookie = captured_opts["opts"].get("_temp_cookiefile")
+    assert tmp_cookie
+    assert not os.path.exists(tmp_cookie)

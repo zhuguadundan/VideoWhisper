@@ -40,6 +40,57 @@ window.UIHelpers = (function() {
     } catch (_) { return String(bytes); }
   }
 
-  return { showToast, setProgress, humanFileSize };
+  function isSensitiveField(key) {
+    const normalized = String(key || '').toLowerCase();
+    return normalized === 'api_key'
+      || normalized === 'authorization'
+      || normalized === 'cookie'
+      || normalized === 'cookies'
+      || normalized === 'mobile'
+      || normalized === 'mobiles'
+      || normalized === 'password'
+      || normalized === 'passwd'
+      || normalized === 'secret'
+      || normalized === 'token'
+      || normalized === 'userid'
+      || normalized === 'userids'
+      || normalized === 'user_id'
+      || normalized === 'webhook_url'
+      || normalized === 'key'
+      || normalized.endsWith('_mobile')
+      || normalized.endsWith('_mobiles')
+      || normalized.endsWith('_key')
+      || normalized.endsWith('_token')
+      || normalized.endsWith('_secret')
+      || normalized.endsWith('_userid')
+      || normalized.endsWith('_userids')
+      || normalized.endsWith('_user_id')
+      || normalized.includes('mentioned_mobile')
+      || normalized.includes('mentioned_userid')
+      || normalized.includes('cookie');
+  }
+
+  function maskSensitiveData(value, seen = new WeakSet()) {
+    if (value === null || value === undefined) return value;
+    if (typeof value !== 'object') return value;
+    if (seen.has(value)) return '[Circular]';
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      return value.map((item) => maskSensitiveData(item, seen));
+    }
+
+    const masked = {};
+    for (const [key, entry] of Object.entries(value)) {
+      if (isSensitiveField(key)) {
+        masked[key] = entry ? '[REDACTED]' : entry;
+        continue;
+      }
+      masked[key] = maskSensitiveData(entry, seen);
+    }
+    return masked;
+  }
+
+  return { showToast, setProgress, humanFileSize, maskSensitiveData };
 })();
 

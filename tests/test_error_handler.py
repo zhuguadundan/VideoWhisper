@@ -2,6 +2,9 @@
 
 from flask import Flask, jsonify, g
 
+import app as app_module
+from app import create_app
+from app.utils.log_safety import mask_sensitive_data
 from app.utils.error_handler import api_error_handler, safe_json_response
 
 
@@ -126,6 +129,8 @@ def test_api_error_handler_masks_sensitive_json_fields_in_logs(caplog):
     payload = {
         "api_key": "secret-key",
         "token": "very-secret",
+        "youtube_cookies": "SID=abc",
+        "api_config": {"openai": {"api_key": "nested-secret"}},
         "normal": "value",
     }
 
@@ -140,7 +145,77 @@ def test_api_error_handler_masks_sensitive_json_fields_in_logs(caplog):
     # Masked logs should not leak raw secrets
     assert "secret-key" not in log_text
     assert "very-secret" not in log_text
+    assert "SID=abc" not in log_text
+    assert "nested-secret" not in log_text
     # But masked placeholder should appear
+    assert "***" in log_text
+
+
+def test_mask_sensitive_data_masks_nested_cookie_payloads():
+    payload = {
+        "normal": "value",
+        "youtube_cookies": "SID=abc",
+        "api_config": {"openai": {"api_key": "nested-secret"}},
+        "items": [
+            {"bilibili_cookies": "SESSDATA=def", "keep": "ok"},
+            {"token": "abc123"},
+        ],
+    }
+
+    masked = mask_sensitive_data(payload)
+
+    assert masked["normal"] == "value"
+    assert masked["youtube_cookies"] == "***"
+    assert masked["api_config"]["openai"]["api_key"] == "***"
+    assert masked["items"][0]["bilibili_cookies"] == "***"
+    assert masked["items"][0]["keep"] == "ok"
+    assert masked["items"][1]["token"] == "***"
+
+
+def test_create_app_masks_sensitive_json_fields_in_global_error_logs(
+    app_config, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.config.settings.Config.load_config", staticmethod(lambda: app_config)
+    )
+    app = create_app()
+    app.config.update(TESTING=False, PROPAGATE_EXCEPTIONS=False)
+
+    @app.route("/api/boom", methods=["POST"])
+    def boom():  # pragma: no cover - exercised via test client
+        raise RuntimeError("boom")
+
+    client = app.test_client()
+    payload = {
+        "youtube_cookies": "SID=abc",
+        "api_config": {"openai": {"api_key": "nested-secret"}},
+        "normal": "value",
+    }
+
+    messages = []
+
+    def fake_error(message, *args, **kwargs):
+        if args:
+            message = message % args
+        messages.append(str(message))
+
+    def fake_exception(message, *args, **kwargs):
+        if args:
+            message = message % args
+        messages.append(str(message))
+
+    monkeypatch.setattr(app_module.logging, "error", fake_error)
+    monkeypatch.setattr(app_module.logging, "exception", fake_exception)
+
+    resp = client.post("/api/boom", json=payload)
+
+    data = resp.get_json()
+    assert resp.status_code == 500
+    assert data["success"] is False
+
+    log_text = "\n".join(messages)
+    assert "SID=abc" not in log_text
+    assert "nested-secret" not in log_text
     assert "***" in log_text
 
 
