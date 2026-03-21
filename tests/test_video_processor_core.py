@@ -136,6 +136,43 @@ def test_save_and_load_tasks_round_trip(tmp_path, monkeypatch):
     assert loaded_task.video_info.description == "desc"
 
 
+def test_video_processor_init_cleans_stale_partial_download_dirs(tmp_path, monkeypatch):
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+
+    cfg = _make_config(str(temp_dir), str(output_dir))
+    monkeypatch.setattr(Config, "load_config", staticmethod(lambda: cfg))
+    Config._config_cache = None
+
+    task_id = "9df6bb8c-df3b-414d-a2ff-9f9e0cd6f3f2"
+    partial_dir = output_dir / task_id / ".partial"
+    partial_dir.mkdir(parents=True)
+    (partial_dir / "stale.part").write_text("stale", encoding="utf-8")
+
+    tasks_file = output_dir / "tasks.json"
+    tasks_file.write_text(
+        json.dumps(
+            [
+                {
+                    "id": task_id,
+                    "video_url": "https://example.com/video",
+                    "status": "failed",
+                    "created_at": "2026-03-15T15:00:00",
+                    "error_message": "boom",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    VideoProcessor()
+
+    assert not partial_dir.exists()
+
+
 def test_step_get_video_info_uses_site_specific_cookies(tmp_path, monkeypatch):
     temp_dir = tmp_path / "temp"
     output_dir = tmp_path / "output"

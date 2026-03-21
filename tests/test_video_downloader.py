@@ -182,3 +182,158 @@ def test_get_video_info_cleans_cookie_file_even_on_error(tmp_path, monkeypatch):
     tmp_cookie = captured_opts["opts"].get("_temp_cookiefile")
     assert tmp_cookie
     assert not os.path.exists(tmp_cookie)
+
+
+def test_download_video_uses_partial_dir_under_output(tmp_path, monkeypatch):
+    _patch_config_for_tmp(tmp_path, monkeypatch)
+
+    captured = {}
+
+    class DummyYDL:
+        def __init__(self, opts):
+            captured["opts"] = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def extract_info(self, url, download=False):
+            assert download is True
+            outtmpl = captured["opts"]["outtmpl"]
+            filename = (
+                outtmpl.replace("%(title)s", "Video Title").replace("%(ext)s", "mp4")
+            )
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            with open(filename, "wb") as f:
+                f.write(b"video")
+            return {"_filename": filename, "title": "Video Title"}
+
+        def prepare_filename(self, info):  # pragma: no cover - not used in this test
+            return info.get("_filename", "video.ext")
+
+    dummy_module = types.SimpleNamespace(YoutubeDL=DummyYDL)
+    monkeypatch.setitem(sys.modules, "yt_dlp", dummy_module)
+
+    from app.services import video_downloader as vd_mod
+
+    monkeypatch.setattr(
+        vd_mod, "_build_timestamp_suffix", lambda dt=None: "20260315_160000"
+    )
+
+    vd = VideoDownloader()
+    out_dir = tmp_path / "output" / "task-1"
+
+    result_path = vd.download_video(
+        url="https://example.com/watch?v=1",
+        output_dir=str(out_dir),
+        task_id="task-1",
+    )
+
+    partial_dir = out_dir / ".partial"
+    assert captured["opts"]["outtmpl"] == str(partial_dir / "%(title)s_task-1.%(ext)s")
+    assert result_path == str(out_dir / "Video Title_20260315_160000.mp4")
+    assert os.path.exists(result_path)
+    assert not partial_dir.exists()
+
+
+def test_download_video_uses_cleaned_stem_when_info_title_missing(
+    tmp_path, monkeypatch
+):
+    _patch_config_for_tmp(tmp_path, monkeypatch)
+
+    captured = {}
+
+    class DummyYDL:
+        def __init__(self, opts):
+            captured["opts"] = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def extract_info(self, url, download=False):
+            assert download is True
+            outtmpl = captured["opts"]["outtmpl"]
+            filename = (
+                outtmpl.replace("%(title)s", "Downloaded Clip")
+                .replace("%(ext)s", "mp4")
+            )
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            with open(filename, "wb") as f:
+                f.write(b"video")
+            return {"_filename": filename}
+
+        def prepare_filename(self, info):  # pragma: no cover - not used in this test
+            return info.get("_filename", "video.ext")
+
+    dummy_module = types.SimpleNamespace(YoutubeDL=DummyYDL)
+    monkeypatch.setitem(sys.modules, "yt_dlp", dummy_module)
+
+    from app.services import video_downloader as vd_mod
+
+    monkeypatch.setattr(
+        vd_mod, "_build_timestamp_suffix", lambda dt=None: "20260315_160000"
+    )
+
+    vd = VideoDownloader()
+    out_dir = tmp_path / "output" / "task-2"
+
+    result_path = vd.download_video(
+        url="https://example.com/watch?v=2",
+        output_dir=str(out_dir),
+        task_id="task-2",
+    )
+
+    assert os.path.basename(result_path) == "Downloaded Clip_20260315_160000.mp4"
+    assert "task-2" not in os.path.basename(result_path)
+
+
+def test_download_video_cleans_partial_dir_on_failure(tmp_path, monkeypatch):
+    _patch_config_for_tmp(tmp_path, monkeypatch)
+
+    captured = {}
+
+    class DummyYDL:
+        def __init__(self, opts):
+            captured["opts"] = opts
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def extract_info(self, url, download=False):
+            assert download is True
+            outtmpl = captured["opts"]["outtmpl"]
+            filename = (
+                outtmpl.replace("%(title)s", "Broken Video").replace("%(ext)s", "mp4")
+            )
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            with open(filename, "wb") as f:
+                f.write(b"partial-data")
+            raise RuntimeError("boom")
+
+    dummy_module = types.SimpleNamespace(YoutubeDL=DummyYDL)
+    monkeypatch.setitem(sys.modules, "yt_dlp", dummy_module)
+
+    vd = VideoDownloader()
+    task_id = "4e0d2e56-6d76-4df0-9eaf-0f4e41c8f112"
+    out_dir = tmp_path / "output" / task_id
+
+    try:
+        vd.download_video(
+            url="https://example.com/watch?v=3",
+            output_dir=str(out_dir),
+            task_id=task_id,
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "boom"
+    else:  # pragma: no cover
+        raise AssertionError("expected RuntimeError")
+
+    assert not (out_dir / ".partial").exists()

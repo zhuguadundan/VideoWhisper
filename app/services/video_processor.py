@@ -162,6 +162,7 @@ class VideoProcessor:
 
         # 加载已有任务数据
         self.load_tasks_from_disk()
+        self._cleanup_stale_partial_downloads()
 
     def request_cancel(self, task_id: str):
         """请求取消指定任务"""
@@ -1601,6 +1602,26 @@ class VideoProcessor:
             )
         except Exception as e:
             self.logger.warning(f"[{current_task_id}] 临时文件清理失败: {e}")
+
+    def _cleanup_stale_partial_downloads(self) -> None:
+        try:
+            active_task_ids = [
+                task_id
+                for task_id, task in self.tasks.items()
+                if getattr(task, "status", None) == "processing"
+            ]
+            result = self.file_uploader.file_manager.cleanup_stale_partial_dirs(
+                active_task_ids=active_task_ids
+            )
+            removed_count = int(result.get("removed_count", 0))
+            reclaimed_bytes = int(result.get("reclaimed_bytes", 0))
+            if removed_count > 0:
+                reclaimed_mb = reclaimed_bytes / (1024 * 1024)
+                self.logger.info(
+                    f"已清理 {removed_count} 个残留部分下载目录，释放 {reclaimed_mb:.2f} MB 空间"
+                )
+        except Exception as e:
+            self.logger.warning(f"清理残留部分下载目录失败: {e}")
 
     def _is_file_related_to_task(self, file_name: str, task_id: str) -> bool:
         """判断文件是否与特定任务相关"""

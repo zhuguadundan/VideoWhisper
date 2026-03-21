@@ -4,7 +4,7 @@ import shutil
 import uuid
 import logging
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from app.config.settings import Config
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,30 @@ class FileManager:
         except Exception:
             return False
 
+    def _get_safe_output_task_dir(self, task_id: str) -> Optional[str]:
+        try:
+            if not self._is_valid_task_id(task_id):
+                return None
+            base_abs = os.path.realpath(self.output_dir)
+            task_dir = os.path.realpath(os.path.join(base_abs, task_id))
+            if os.path.commonpath([base_abs]) != os.path.commonpath([base_abs, task_dir]):
+                return None
+            return task_dir
+        except Exception:
+            return None
+
+    def _get_dir_size_bytes(self, directory: str) -> int:
+        total = 0
+        try:
+            for root, _dirs, files in os.walk(directory):
+                for file_name in files:
+                    file_path = os.path.join(root, file_name)
+                    if os.path.exists(file_path):
+                        total += os.path.getsize(file_path)
+        except Exception:
+            return total
+        return total
+
     def _safe_remove_task_dir(self, task_id: str, task_temp_dir: str):
         try:
             if not self._is_valid_task_id(task_id):
@@ -154,11 +178,8 @@ class FileManager:
 
     def delete_output_task_dir(self, task_id: str) -> bool:
         try:
-            if not self._is_valid_task_id(task_id):
-                return False
-            base_abs = os.path.realpath(self.output_dir)
-            task_dir = os.path.realpath(os.path.join(base_abs, task_id))
-            if os.path.commonpath([base_abs]) != os.path.commonpath([base_abs, task_dir]):
+            task_dir = self._get_safe_output_task_dir(task_id)
+            if not task_dir:
                 return False
             if os.path.exists(task_dir):
                 shutil.rmtree(task_dir, ignore_errors=True)
@@ -166,6 +187,48 @@ class FileManager:
             return False
         except Exception:
             return False
+
+    def cleanup_task_partial_dir(self, task_id: str) -> bool:
+        try:
+            task_dir = self._get_safe_output_task_dir(task_id)
+            if not task_dir:
+                return False
+            partial_dir = os.path.realpath(os.path.join(task_dir, '.partial'))
+            if os.path.commonpath([task_dir]) != os.path.commonpath([task_dir, partial_dir]):
+                return False
+            if os.path.isdir(partial_dir):
+                shutil.rmtree(partial_dir, ignore_errors=True)
+                return not os.path.exists(partial_dir)
+            return False
+        except Exception:
+            return False
+
+    def cleanup_stale_partial_dirs(self, active_task_ids: Optional[List[str]] = None) -> Dict[str, int]:
+        removed_count = 0
+        reclaimed_bytes = 0
+        active_ids = {str(task_id).lower() for task_id in (active_task_ids or [])}
+        try:
+            if not os.path.exists(self.output_dir):
+                return {'removed_count': 0, 'reclaimed_bytes': 0}
+
+            for task_id in os.listdir(self.output_dir):
+                task_dir = self._get_safe_output_task_dir(task_id)
+                if not task_dir or task_id.lower() in active_ids:
+                    continue
+
+                partial_dir = os.path.realpath(os.path.join(task_dir, '.partial'))
+                if os.path.commonpath([task_dir]) != os.path.commonpath([task_dir, partial_dir]):
+                    continue
+                if not os.path.isdir(partial_dir):
+                    continue
+
+                reclaimed_bytes += self._get_dir_size_bytes(partial_dir)
+                shutil.rmtree(partial_dir, ignore_errors=True)
+                if not os.path.exists(partial_dir):
+                    removed_count += 1
+        except Exception as e:
+            logger.warning(f'清理残留部分下载目录时出错: {e}')
+        return {'removed_count': removed_count, 'reclaimed_bytes': reclaimed_bytes}
 
     def get_file_size_mb(self, file_path: str) -> float:
         if os.path.exists(file_path):

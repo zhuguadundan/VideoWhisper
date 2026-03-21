@@ -120,3 +120,52 @@ def test_delete_output_task_dir_valid_and_invalid_ids(tmp_path, monkeypatch):
     # 非法 id 不会尝试删除
     assert fm.delete_output_task_dir("not-a-uuid") is False
 
+
+def test_cleanup_task_partial_dir_removes_only_partial_subdir(tmp_path, monkeypatch):
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+
+    monkeypatch.setattr(Config, "get_config", staticmethod(lambda: _make_config(str(temp_dir), str(output_dir))))
+
+    fm = FileManager()
+    task_id = str(uuid.uuid4())
+    task_dir = output_dir / task_id
+    partial_dir = task_dir / ".partial"
+    task_dir.mkdir()
+    partial_dir.mkdir()
+    (partial_dir / "video.part").write_text("partial", encoding="utf-8")
+    final_file = task_dir / "result.mp4"
+    final_file.write_text("ok", encoding="utf-8")
+
+    assert fm.cleanup_task_partial_dir(task_id) is True
+    assert not partial_dir.exists()
+    assert final_file.exists()
+
+
+def test_cleanup_stale_partial_dirs_skips_active_tasks(tmp_path, monkeypatch):
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    temp_dir.mkdir()
+    output_dir.mkdir()
+
+    monkeypatch.setattr(Config, "get_config", staticmethod(lambda: _make_config(str(temp_dir), str(output_dir))))
+
+    fm = FileManager()
+    stale_task_id = str(uuid.uuid4())
+    active_task_id = str(uuid.uuid4())
+
+    stale_partial = output_dir / stale_task_id / ".partial"
+    active_partial = output_dir / active_task_id / ".partial"
+    stale_partial.mkdir(parents=True)
+    active_partial.mkdir(parents=True)
+    (stale_partial / "old.part").write_text("abc", encoding="utf-8")
+    (active_partial / "live.part").write_text("def", encoding="utf-8")
+
+    result = fm.cleanup_stale_partial_dirs(active_task_ids=[active_task_id])
+
+    assert result["removed_count"] == 1
+    assert result["reclaimed_bytes"] >= 3
+    assert not stale_partial.exists()
+    assert active_partial.exists()

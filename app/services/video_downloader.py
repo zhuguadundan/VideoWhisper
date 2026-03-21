@@ -453,9 +453,11 @@ class VideoDownloader:
             ):
                 raise DownloadCancelled("No progress for too long")
 
-        # Use a temp template first, then rename/move to final output.
+        # Keep partial files under output_dir so the final rename stays on one mount.
         safe_task = re.sub(r"[^A-Za-z0-9_-]+", "_", task_id)
-        tmp_outtmpl = os.path.join(self.temp_dir, f"%(title)s_{safe_task}.%(ext)s")
+        partial_dir = os.path.join(output_dir, ".partial")
+        os.makedirs(partial_dir, exist_ok=True)
+        tmp_outtmpl = os.path.join(partial_dir, f"%(title)s_{safe_task}.%(ext)s")
 
         opts = self._build_base_opts(cookies_str, cookies_domain=cookies_domain)
         fmt = (format_selector or "").strip() or "bestvideo+bestaudio/best"
@@ -469,34 +471,50 @@ class VideoDownloader:
             }
         )
 
-        downloaded_path: Optional[str] = None
-        _DOWNLOAD_SEMAPHORE.acquire()
         try:
-            with ydlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                if info and "_filename" in info:
-                    downloaded_path = info["_filename"]
-                else:
-                    downloaded_path = ydl.prepare_filename(info)
-        finally:
-            _DOWNLOAD_SEMAPHORE.release()
-            self._cleanup_temp_cookiefile(opts)
+            downloaded_path: Optional[str] = None
+            info: Optional[Dict[str, Any]] = None
+            _DOWNLOAD_SEMAPHORE.acquire()
+            try:
+                with ydlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+                    if info and "_filename" in info:
+                        downloaded_path = info["_filename"]
+                    else:
+                        downloaded_path = ydl.prepare_filename(info)
+            finally:
+                _DOWNLOAD_SEMAPHORE.release()
+                self._cleanup_temp_cookiefile(opts)
 
-        if not downloaded_path or not os.path.exists(downloaded_path):
-            raise RuntimeError("Download failed: output file not found")
+            if not downloaded_path or not os.path.exists(downloaded_path):
+                raise RuntimeError("Download failed: output file not found")
 
-        # Final filename: {title}_{timestamp}.{ext}
-        title = Path(downloaded_path).stem
-        ext = Path(downloaded_path).suffix.lstrip(".") or "mp4"
-        safe_title = self._sanitize_filename(title)
-        ts = _build_timestamp_suffix()
-        final_name = f"{safe_title}_{ts}.{ext}"
-        final_path = os.path.join(output_dir, final_name)
+            # Final filename: {title}_{timestamp}.{ext}
+            title = ""
+            if isinstance(info, dict):
+                title = str(info.get("title") or "").strip()
+            if not title:
+                title = Path(downloaded_path).stem
+                task_suffix = f"_{safe_task}"
+                if title.endswith(task_suffix):
+                    title = title[: -len(task_suffix)]
+            ext = Path(downloaded_path).suffix.lstrip(".") or "mp4"
+            safe_title = self._sanitize_filename(title)
+            ts = _build_timestamp_suffix()
+            final_name = f"{safe_title}_{ts}.{ext}"
+            final_path = os.path.join(output_dir, final_name)
 
-        # Ensure final path stays within output_dir
-        if not is_within(output_dir, final_path):
-            raise ValueError("Invalid output path")
+            # Ensure final path stays within output_dir
+            if not is_within(output_dir, final_path):
+                raise ValueError("Invalid output path")
 
-        # Move to final destination
-        os.replace(downloaded_path, final_path)
-        return final_path
+            # Move to final destination
+            os.replace(downloaded_path, final_path)
+            try:
+                os.rmdir(partial_dir)
+            except OSError:
+                pass
+            return final_path
+        except Exception:
+            self.file_manager.cleanup_task_partial_dir(task_id)
+            raise
